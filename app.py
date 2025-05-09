@@ -29,6 +29,8 @@ os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 import shutil
 
+import shutil
+
 def init_github_repo():
     """Download and extract the GitHub repository instead of cloning."""
     try:
@@ -52,7 +54,6 @@ def init_github_repo():
     except Exception as e:
         st.error(f"Failed to download and extract GitHub repo: {e}")
         raise
-
 
 def sync_with_github():
     """Pull latest changes from GitHub."""
