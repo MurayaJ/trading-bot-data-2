@@ -14,22 +14,20 @@ import sqlite3
 import bcrypt
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
+import subprocess
+import urllib.request      # Import the urllib.request module
+import zipfile             # Import zipfile to work with ZIP files
 import shutil
 
 # Define paths and GitHub URL
 BASE_DIR = "trading_bot_data"
 MODEL_DIR = os.path.join(BASE_DIR, "models")
 DB_PATH = os.path.join(BASE_DIR, "db/trading_users.db")
-GITHUB_PAT = os.environ.get("GITHUB_PAT")# Fallback for testing
+GITHUB_PAT = os.environ.get("GITHUB_PAT")  # Fetch from Render’s environment variables
 GITHUB_REPO_URL = f"https://MurayaJ:{GITHUB_PAT}@github.com/MurayaJ/trading-bot.git"
+
 os.makedirs(MODEL_DIR, exist_ok=True)
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-
-# GitHub functions
-
-import shutil
-
-import shutil
 
 def init_github_repo():
     """Download and extract the GitHub repository instead of cloning."""
