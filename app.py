@@ -21,29 +21,38 @@ BASE_DIR = "trading_bot_data"
 MODEL_DIR = os.path.join(BASE_DIR, "models")
 DB_PATH = os.path.join(BASE_DIR, "db/trading_users.db")
 GITHUB_PAT = os.environ.get("GITHUB_PAT")# Fallback for testing
-GITHUB_REPO_URL = f"https://MurayaJ:{GITHUB_PAT}@github.com/MurayaJ/trading-bot-data.git"
+GITHUB_REPO_URL = f"https://MurayaJ:{GITHUB_PAT}@github.com/MurayaJ/trading-bot.git"
 os.makedirs(MODEL_DIR, exist_ok=True)
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 # GitHub functions
 
+import shutil
+
 def init_github_repo():
-    """Ensure that BASE_DIR is a clone of the GitHub repository."""
+    """Download and extract the GitHub repository instead of cloning."""
     try:
-        if os.path.exists(BASE_DIR):
-            if not os.path.exists(os.path.join(BASE_DIR, ".git")):
-                shutil.rmtree(BASE_DIR)  # Remove non-Git directory
-            subprocess.run(["git", "clone", GITHUB_REPO_URL, BASE_DIR], check=True)
-        else:
-            subprocess.run(["git", "clone", GITHUB_REPO_URL, BASE_DIR], check=True)
-        subprocess.run(["git", "config", "user.email", "bot@tradingbot.com"], cwd=BASE_DIR, check=True)
-        subprocess.run(["git", "config", "user.name", "Trading Bot"], cwd=BASE_DIR, check=True)
-    except subprocess.CalledProcessError as e:
-        st.error(f"Failed to initialize GitHub repo: {e}")
-        raise
+        repo_zip_url = "https://github.com/MurayaJ/trading-bot-data/archive/refs/heads/main.zip"
+        zip_path = "/app/trading_bot_data.zip"
+
+        # Download the ZIP file
+        urllib.request.urlretrieve(repo_zip_url, zip_path)
+
+        # Extract the ZIP file
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall("/app")
+
+        # Ensure target directory is removed before renaming
+        if os.path.exists("/app/trading_bot_data"):
+            shutil.rmtree("/app/trading_bot_data")  # Delete existing folder
+
+        # Rename extracted folder
+        os.rename("/app/trading-bot-data-main", "/app/trading_bot_data")
+
     except Exception as e:
-        st.error(f"Error in init_github_repo: {e}")
+        st.error(f"Failed to download and extract GitHub repo: {e}")
         raise
+
 
 def sync_with_github():
     """Pull latest changes from GitHub."""
