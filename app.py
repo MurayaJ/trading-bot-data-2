@@ -14,59 +14,88 @@ import sqlite3
 import bcrypt
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
-import subprocess
-import urllib.request      # Import the urllib.request module
-import zipfile             # Import zipfile to work with ZIP files
 import shutil
 
 # Define paths and GitHub URL
 BASE_DIR = "trading_bot_data"
 MODEL_DIR = os.path.join(BASE_DIR, "models")
 DB_PATH = os.path.join(BASE_DIR, "db/trading_users.db")
-GITHUB_PAT = os.environ.get("GITHUB_PAT")  # Fetch from Render’s environment variables
-GITHUB_REPO_URL = f"https://MurayaJ:{GITHUB_PAT}@github.com/MurayaJ/trading-bot.git"
-
-os.makedirs(MODEL_DIR, exist_ok=True)
-os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+GITHUB_PAT = os.environ.get("GITHUB_PAT")
+GITHUB_REPO_URL = f"https://MurayaJ:{GITHUB_PAT}@github.com/MurayaJ/trading-bot-data.git"
 
 def init_github_repo():
-    """Download and extract the GitHub repository instead of cloning."""
+    """Initialize the GitHub repository by cloning or ensuring it's a Git repo."""
     try:
-        repo_zip_url = "https://github.com/MurayaJ/trading-bot-data/archive/refs/heads/main.zip"
-        zip_path = "/app/trading_bot_data.zip"
-
-        # Download the ZIP file
-        urllib.request.urlretrieve(repo_zip_url, zip_path)
-
-        # Extract the ZIP file
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall("/app")
-
-        # Ensure target directory is removed before renaming
-        if os.path.exists("/app/trading_bot_data"):
-            shutil.rmtree("/app/trading_bot_data")  # Delete existing folder
-
-        # Rename extracted folder
-        os.rename("/app/trading-bot-data-main", "/app/trading_bot_data")
-
+        if os.path.exists(BASE_DIR):
+            if not os.path.exists(os.path.join(BASE_DIR, ".git")):
+                shutil.rmtree(BASE_DIR)  # Remove non-Git directory
+            subprocess.run(
+                ["git", "clone", GITHUB_REPO_URL, BASE_DIR],
+                check=True, capture_output=True, text=True
+            )
+        else:
+            subprocess.run(
+                ["git", "clone", GITHUB_REPO_URL, BASE_DIR],
+                check=True, capture_output=True, text=True
+            )
+        subprocess.run(
+            ["git", "config", "user.email", "bot@tradingbot.com"],
+            cwd=BASE_DIR, check=True, capture_output=True, text=True
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Trading Bot"],
+            cwd=BASE_DIR, check=True, capture_output=True, text=True
+        )
+        # Ensure required directories and files exist
+        os.makedirs(MODEL_DIR, exist_ok=True)
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+        if not os.path.exists(DB_PATH):
+            open(DB_PATH, 'a').close()  # Create empty database file
+    except subprocess.CalledProcessError as e:
+        st.error("Failed to initialize GitHub repository. Check repository access or PAT permissions.")
+        # Fallback: Create directories and empty database
+        os.makedirs(MODEL_DIR, exist_ok=True)
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+        if not os.path.exists(DB_PATH):
+            open(DB_PATH, 'a').close()
     except Exception as e:
-        st.error(f"Failed to download and extract GitHub repo: {e}")
-        raise
+        st.error(f"Unexpected error during Git setup: {e}")
+        # Fallback: Create directories and empty database
+        os.makedirs(MODEL_DIR, exist_ok=True)
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+        if not os.path.exists(DB_PATH):
+            open(DB_PATH, 'a').close()
 
 def sync_with_github():
     """Pull latest changes from GitHub."""
-    result = subprocess.run(["git", "pull", "origin", "main"], cwd=BASE_DIR, capture_output=True, text=True)
-    if result.returncode != 0:
-        st.error(f"Git pull failed: {result.stderr}")
+    try:
+        result = subprocess.run(
+            ["git", "pull", "origin", "main"],
+            cwd=BASE_DIR, capture_output=True, text=True, check=True
+        )
+        return result.returncode == 0
+    except subprocess.CalledProcessError as e:
+        st.error(f"Git pull failed: {e.stderr}")
+        return False
 
 def commit_and_push():
     """Commit and push changes to GitHub."""
-    subprocess.run(["git", "add", "."], cwd=BASE_DIR, check=True)
-    result = subprocess.run(["git", "commit", "-m", "Update models and database"], cwd=BASE_DIR, capture_output=True, text=True)
-    if result.returncode == 0 or "nothing to commit" in result.stdout:
-        subprocess.run(["git", "push", "origin", "main"], cwd=BASE_DIR, check=True)
-    else:
-        st.error(f"Git commit failed: {result.stderr}")
+    try:
+        subprocess.run(
+            ["git", "add", "."],
+            cwd=BASE_DIR, check=True, capture_output=True, text=True
+        )
+        result = subprocess.run(
+            ["git", "commit", "-m", "Update models and database"],
+            cwd=BASE_DIR, capture_output=True, text=True
+        )
+        if result.returncode == 0 or "nothing to commit" in result.stdout:
+            subprocess.run(
+                ["git", "push", "origin", "main"],
+                cwd=BASE_DIR, check=True, capture_output=True, text=True
+            )
+    except subprocess.CalledProcessError as e:
+        st.error(f"Git commit/push failed: {e.stderr}")
 
 # Database functions
 def init_db():
@@ -250,6 +279,11 @@ class TradingBot:
             self.markov_p2 = np.full((100, 10), 0.1)
             self.rf_digit_predictor = RandomForestClassifier(n_estimators=100, random_state=42)
             self.feature_scaler = StandardScaler()
+            # Create empty model files if they don't exist
+            for model_file in ["4markov_p1.joblib", "4markov_p2.joblib", "4rf_digit_predictor.joblib", "4feature_scaler.joblib"]:
+                model_path = os.path.join(MODEL_DIR, model_file)
+                if not os.path.exists(model_path):
+                    joblib.dump(self.__dict__[model_file.split('4')[1].split('.')[0]], model_path)
 
     def save_models(self):
         """Save updated models and push to GitHub."""
