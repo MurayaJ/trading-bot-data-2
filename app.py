@@ -21,7 +21,7 @@ BASE_DIR = "trading_bot_data"
 MODEL_DIR = os.path.join(BASE_DIR, "models")
 DB_PATH = os.path.join(BASE_DIR, "db/trading_users.db")
 GITHUB_PAT = os.environ.get("GITHUB_PAT")
-GITHUB_REPO_URL = f"https://MurayaJ:{GITHUB_PAT}@github.com/MurayaJ/trading-bot-data.git"
+GITHUB_REPO_URL = "https://github.com/MurayaJ/trading-bot-data.git"  # Public URL
 
 def init_github_repo():
     """Initialize the GitHub repository by cloning or ensuring it's a Git repo."""
@@ -52,7 +52,7 @@ def init_github_repo():
         if not os.path.exists(DB_PATH):
             open(DB_PATH, 'a').close()  # Create empty database file
     except subprocess.CalledProcessError as e:
-        st.error("Failed to initialize GitHub repository. Check repository access or PAT permissions.")
+        st.error(f"Failed to initialize GitHub repository: {e.stderr}")
         # Fallback: Create directories and empty database
         os.makedirs(MODEL_DIR, exist_ok=True)
         os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -590,7 +590,12 @@ def main():
                                 st.session_state["logged_in"] = True
                                 st.session_state["email"] = email
                                 st.session_state["last_activity"] = time.time()
+                                # Initialize trading status from DB
                                 st.session_state["trading_active"] = user_data['trading_status'] == 'active'
+                                if st.session_state["trading_active"]:
+                                    update_trading_status(email, 'inactive')  # Reset after downtime
+                                    st.warning("Trading was active but stopped due to downtime. Please restart.")
+                                    st.session_state["trading_active"] = False
                                 st.success("Logged in successfully!")
                         else:
                             st.error("Invalid email or password.")
@@ -605,6 +610,7 @@ def main():
             st.session_state.pop("bot", None)
             st.session_state.pop("thread", None)
             st.session_state["trading_active"] = False
+            update_trading_status(st.session_state["email"], 'inactive')
             st.warning("Logged out due to inactivity.")
             return
 
@@ -653,10 +659,16 @@ def main():
             with col_btn2:
                 if st.session_state["trading_active"]:
                     if st.button("Stop Trading"):
-                        st.session_state["bot"].stop_trading = True
-                        st.session_state["trading_active"] = False
-                        update_trading_status(st.session_state["email"], 'inactive')
-                        st.success("Trading stopped.")
+                        if "bot" in st.session_state:
+                            st.session_state["bot"].stop_trading = True
+                            st.session_state["trading_active"] = False
+                            update_trading_status(st.session_state["email"], 'inactive')
+                            st.success("Trading stopped.")
+                        else:
+                            st.session_state["trading_active"] = False
+                            update_trading_status(st.session_state["email"], 'inactive')
+                            st.warning("Bot not found. Trading status reset.")
+        
         with col2:
             st.subheader("Account Status")
             if "bot" in st.session_state:
