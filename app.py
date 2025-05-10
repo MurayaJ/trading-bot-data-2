@@ -15,29 +15,45 @@ import bcrypt
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 import shutil
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Define paths and GitHub URL
 BASE_DIR = "trading_bot_data"
 MODEL_DIR = os.path.join(BASE_DIR, "models")
 DB_PATH = os.path.join(BASE_DIR, "db/trading_users.db")
-GITHUB_PAT = os.environ.get("GITHUB_PAT")
-GITHUB_REPO_URL = "https://github.com/MurayaJ/trading-bot-data.git"  # Public URL
+GITHUB_PAT = os.environ.get("GITHUB_PAT", "")
+PUBLIC_GITHUB_REPO_URL = "https://github.com/MurayaJ/trading-bot-data.git"
+AUTH_GITHUB_REPO_URL = f"https://MurayaJ:{GITHUB_PAT}@github.com/MurayaJ/trading-bot-data.git" if GITHUB_PAT else PUBLIC_GITHUB_REPO_URL
+
+def is_valid_git_repo(path):
+    """Check if the directory is a valid Git repository."""
+    try:
+        subprocess.run(
+            ["git", "status"],
+            cwd=path, check=True, capture_output=True, text=True
+        )
+        return True
+    except subprocess.CalledProcessError:
+        return False
 
 def init_github_repo():
     """Initialize the GitHub repository by cloning or ensuring it's a Git repo."""
     try:
         if os.path.exists(BASE_DIR):
-            if not os.path.exists(os.path.join(BASE_DIR, ".git")):
-                shutil.rmtree(BASE_DIR)  # Remove non-Git directory
-            subprocess.run(
-                ["git", "clone", GITHUB_REPO_URL, BASE_DIR],
-                check=True, capture_output=True, text=True
-            )
-        else:
-            subprocess.run(
-                ["git", "clone", GITHUB_REPO_URL, BASE_DIR],
-                check=True, capture_output=True, text=True
-            )
+            if os.path.exists(os.path.join(BASE_DIR, ".git")) and is_valid_git_repo(BASE_DIR):
+                logging.info("Existing Git repository found. Skipping clone.")
+                return  # Valid Git repo, no need to clone
+            else:
+                logging.info("Removing invalid or non-Git directory.")
+                shutil.rmtree(BASE_DIR)  # Remove invalid directory
+        logging.info(f"Cloning repository from {PUBLIC_GITHUB_REPO_URL}")
+        subprocess.run(
+            ["git", "clone", PUBLIC_GITHUB_REPO_URL, BASE_DIR],
+            check=True, capture_output=True, text=True
+        )
         subprocess.run(
             ["git", "config", "user.email", "bot@tradingbot.com"],
             cwd=BASE_DIR, check=True, capture_output=True, text=True
@@ -52,14 +68,14 @@ def init_github_repo():
         if not os.path.exists(DB_PATH):
             open(DB_PATH, 'a').close()  # Create empty database file
     except subprocess.CalledProcessError as e:
-        st.error(f"Failed to initialize GitHub repository: {e.stderr}")
+        logging.error(f"Failed to initialize GitHub repository: {e.stderr}")
         # Fallback: Create directories and empty database
         os.makedirs(MODEL_DIR, exist_ok=True)
         os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
         if not os.path.exists(DB_PATH):
             open(DB_PATH, 'a').close()
     except Exception as e:
-        st.error(f"Unexpected error during Git setup: {e}")
+        logging.error(f"Unexpected error during Git setup: {e}")
         # Fallback: Create directories and empty database
         os.makedirs(MODEL_DIR, exist_ok=True)
         os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -73,9 +89,10 @@ def sync_with_github():
             ["git", "pull", "origin", "main"],
             cwd=BASE_DIR, capture_output=True, text=True, check=True
         )
+        logging.info("Successfully pulled latest changes from GitHub.")
         return result.returncode == 0
     except subprocess.CalledProcessError as e:
-        st.error(f"Git pull failed: {e.stderr}")
+        logging.error(f"Git pull failed: {e.stderr}")
         return False
 
 def commit_and_push():
@@ -90,12 +107,14 @@ def commit_and_push():
             cwd=BASE_DIR, capture_output=True, text=True
         )
         if result.returncode == 0 or "nothing to commit" in result.stdout:
+            # Use authenticated URL for push
             subprocess.run(
-                ["git", "push", "origin", "main"],
+                ["git", "push", AUTH_GITHUB_REPO_URL, "main"],
                 cwd=BASE_DIR, check=True, capture_output=True, text=True
             )
+            logging.info("Successfully pushed changes to GitHub.")
     except subprocess.CalledProcessError as e:
-        st.error(f"Git commit/push failed: {e.stderr}")
+        logging.error(f"Git commit/push failed: {e.stderr}")
 
 # Database functions
 def init_db():
