@@ -21,6 +21,7 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Define paths and GitHub URL (assuming private repo with PAT)
+
 BASE_DIR = "trading_bot_data"
 MODEL_DIR = os.path.join(BASE_DIR, "models")
 DB_PATH = os.path.join(BASE_DIR, "db/trading_users.db")
@@ -84,10 +85,17 @@ def commit_and_push():
     except subprocess.CalledProcessError as e:
         logging.error(f"Git commit/push failed: {e.stderr}")
 
-# Database Functions
 def init_db():
+    """Initialize the database, ensuring it exists."""
+    
+    #Step 1: Ensure the database path is valid
+    if not os.path.exists(DB_PATH):
+        raise ValueError(f"Error: Database file '{DB_PATH}' does not exist!")
+
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
+
+    #Step 2: Create the 'users' table if missing
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -100,14 +108,17 @@ def init_db():
             trading_status TEXT DEFAULT 'inactive'
         )
     """)
+
+    # Step 3: Ensure essential columns exist
     c.execute("PRAGMA table_info(users)")
     columns = [row[1] for row in c.fetchall()]
     for col in ["password_hash", "trial_start_date", "subscription_status", "last_payment_date", "trading_status"]:
         if col not in columns:
             c.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT" + (" DEFAULT 'inactive'" if col == "trading_status" else ""))
+    
     conn.commit()
     conn.close()
-    commit_and_push()
+    commit_and_push()  # Ensure the changes are saved in GitHub
 
 def register_user(name, email, password):
     email = email.lower()
