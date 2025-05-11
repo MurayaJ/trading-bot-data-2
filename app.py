@@ -137,8 +137,13 @@ def login_user(email, password):
     try:
         c.execute("SELECT password_hash FROM users WHERE email = ?", (email,))
         result = c.fetchone()
-        if result and bcrypt.checkpw(password.encode("utf-8"), result[0].encode('utf-8')):
-            return True
+        if result:
+            stored_hash = result[0]
+            # If stored_hash is a string, encode it to bytes; if it's already bytes, use it as is
+            if isinstance(stored_hash, str):
+                stored_hash = stored_hash.encode('utf-8')
+            # Compare the provided password with the stored hash
+            return bcrypt.checkpw(password.encode("utf-8"), stored_hash)
         return False
     finally:
         conn.close()
