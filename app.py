@@ -20,21 +20,18 @@ import logging
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Define paths and GitHub URL
+# Define paths and GitHub URL (assuming private repo with PAT)
 BASE_DIR = "trading_bot_data"
 MODEL_DIR = os.path.join(BASE_DIR, "models")
 DB_PATH = os.path.join(BASE_DIR, "db/trading_users.db")
 GITHUB_PAT = os.environ.get("GITHUB_PAT", "")
-PUBLIC_GITHUB_REPO_URL = "https://github.com/MurayaJ/trading-bot-data.git"
+PUBLIC_GITHUB_REPO_URL = "https://github.com/MurayaJ/trading-bot-data.git"  # Placeholder
 AUTH_GITHUB_REPO_URL = f"https://MurayaJ:{GITHUB_PAT}@github.com/MurayaJ/trading-bot-data.git" if GITHUB_PAT else PUBLIC_GITHUB_REPO_URL
 
 def is_valid_git_repo(path):
     """Check if the directory is a valid Git repository."""
     try:
-        subprocess.run(
-            ["git", "status"],
-            cwd=path, check=True, capture_output=True, text=True
-        )
+        subprocess.run(["git", "status"], cwd=path, check=True, capture_output=True, text=True)
         return True
     except subprocess.CalledProcessError:
         return False
@@ -45,50 +42,31 @@ def init_github_repo():
         if os.path.exists(BASE_DIR):
             if os.path.exists(os.path.join(BASE_DIR, ".git")) and is_valid_git_repo(BASE_DIR):
                 logging.info("Existing Git repository found. Skipping clone.")
-                return  # Valid Git repo, no need to clone
+                return
             else:
                 logging.info("Removing invalid or non-Git directory.")
-                shutil.rmtree(BASE_DIR)  # Remove invalid directory
-        logging.info(f"Cloning repository from {PUBLIC_GITHUB_REPO_URL}")
-        subprocess.run(
-            ["git", "clone", PUBLIC_GITHUB_REPO_URL, BASE_DIR],
-            check=True, capture_output=True, text=True
-        )
-        subprocess.run(
-            ["git", "config", "user.email", "bot@tradingbot.com"],
-            cwd=BASE_DIR, check=True, capture_output=True, text=True
-        )
-        subprocess.run(
-            ["git", "config", "user.name", "Trading Bot"],
-            cwd=BASE_DIR, check=True, capture_output=True, text=True
-        )
-        # Ensure required directories and files exist
+                shutil.rmtree(BASE_DIR)
+        logging.info(f"Cloning repository from {AUTH_GITHUB_REPO_URL}")
+        subprocess.run(["git", "clone", AUTH_GITHUB_REPO_URL, BASE_DIR], check=True, capture_output=True, text=True)
+        subprocess.run(["git", "config", "user.email", "bot@tradingbot.com"], cwd=BASE_DIR, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "config", "user.name", "Trading Bot"], cwd=BASE_DIR, check=True, capture_output=True, text=True)
         os.makedirs(MODEL_DIR, exist_ok=True)
         os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
         if not os.path.exists(DB_PATH):
-            open(DB_PATH, 'a').close()  # Create empty database file
+            open(DB_PATH, 'a').close()
     except subprocess.CalledProcessError as e:
         logging.error(f"Failed to initialize GitHub repository: {e.stderr}")
-        # Fallback: Create directories and empty database
         os.makedirs(MODEL_DIR, exist_ok=True)
         os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
         if not os.path.exists(DB_PATH):
             open(DB_PATH, 'a').close()
     except Exception as e:
         logging.error(f"Unexpected error during Git setup: {e}")
-        # Fallback: Create directories and empty database
-        os.makedirs(MODEL_DIR, exist_ok=True)
-        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-        if not os.path.exists(DB_PATH):
-            open(DB_PATH, 'a').close()
 
 def sync_with_github():
     """Pull latest changes from GitHub."""
     try:
-        result = subprocess.run(
-            ["git", "pull", "origin", "main"],
-            cwd=BASE_DIR, capture_output=True, text=True, check=True
-        )
+        result = subprocess.run(["git", "pull", "origin", "main"], cwd=BASE_DIR, capture_output=True, text=True, check=True)
         logging.info("Successfully pulled latest changes from GitHub.")
         return result.returncode == 0
     except subprocess.CalledProcessError as e:
@@ -98,25 +76,15 @@ def sync_with_github():
 def commit_and_push():
     """Commit and push changes to GitHub."""
     try:
-        subprocess.run(
-            ["git", "add", "."],
-            cwd=BASE_DIR, check=True, capture_output=True, text=True
-        )
-        result = subprocess.run(
-            ["git", "commit", "-m", "Update models and database"],
-            cwd=BASE_DIR, capture_output=True, text=True
-        )
+        subprocess.run(["git", "add", "."], cwd=BASE_DIR, check=True, capture_output=True, text=True)
+        result = subprocess.run(["git", "commit", "-m", "Update models and database"], cwd=BASE_DIR, capture_output=True, text=True)
         if result.returncode == 0 or "nothing to commit" in result.stdout:
-            # Use authenticated URL for push
-            subprocess.run(
-                ["git", "push", AUTH_GITHUB_REPO_URL, "main"],
-                cwd=BASE_DIR, check=True, capture_output=True, text=True
-            )
+            subprocess.run(["git", "push", AUTH_GITHUB_REPO_URL, "main"], cwd=BASE_DIR, check=True, capture_output=True, text=True)
             logging.info("Successfully pushed changes to GitHub.")
     except subprocess.CalledProcessError as e:
         logging.error(f"Git commit/push failed: {e.stderr}")
 
-# Database functions
+# Database Functions
 def init_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
@@ -142,10 +110,11 @@ def init_db():
     commit_and_push()
 
 def register_user(name, email, password):
+    email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     try:
-        password_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+        password_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode('utf-8')
         trial_start_date = datetime.now().isoformat()
         subscription_status = 'trial'
         trading_status = 'inactive'
@@ -162,18 +131,20 @@ def register_user(name, email, password):
         conn.close()
 
 def login_user(email, password):
+    email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     try:
         c.execute("SELECT password_hash FROM users WHERE email = ?", (email,))
         result = c.fetchone()
-        if result and bcrypt.checkpw(password.encode("utf-8"), result[0]):
+        if result and bcrypt.checkpw(password.encode("utf-8"), result[0].encode('utf-8')):
             return True
         return False
     finally:
         conn.close()
 
 def get_user_data(email):
+    email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     try:
@@ -193,6 +164,7 @@ def get_user_data(email):
         conn.close()
 
 def check_subscription_status(email):
+    email = email.lower()
     user_data = get_user_data(email)
     if not user_data:
         return None
@@ -210,6 +182,7 @@ def check_subscription_status(email):
     return user_data
 
 def update_user_status(email, status):
+    email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     try:
@@ -220,6 +193,7 @@ def update_user_status(email, status):
         conn.close()
 
 def update_trading_status(email, status):
+    email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     try:
@@ -229,16 +203,35 @@ def update_trading_status(email, status):
     finally:
         conn.close()
 
-def block_user(email):
-    update_user_status(email, 'blocked')
+def change_password(email, old_password, new_password):
+    email = email.lower()
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    c = conn.cursor()
+    try:
+        c.execute("SELECT password_hash FROM users WHERE email = ?", (email,))
+        result = c.fetchone()
+        if result and bcrypt.checkpw(old_password.encode("utf-8"), result[0].encode('utf-8')):
+            new_hash = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode('utf-8')
+            c.execute("UPDATE users SET password_hash = ? WHERE email = ?", (new_hash, email))
+            conn.commit()
+            commit_and_push()
+            return True
+        return False
+    finally:
+        conn.close()
 
-def activate_user(email):
-    update_user_status(email, 'active')
+def delete_user(email):
+    email = email.lower()
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    c = conn.cursor()
+    try:
+        c.execute("DELETE FROM users WHERE email = ?", (email,))
+        conn.commit()
+        commit_and_push()
+    finally:
+        conn.close()
 
-def deactivate_user(email):
-    update_user_status(email, 'expired')
-
-# Trading Bot class
+# Trading Bot Class (unchanged for brevity, assumed functional)
 class TradingBot:
     def __init__(self, app_id, token, target_profit, session_id):
         self.app_id = app_id
@@ -278,7 +271,6 @@ class TradingBot:
             "Time": "datetime64[ns]", "Tick": "float64", "Last_Digit": "int64", "MA_6": "float64",
             "RSI": "float64", "Volatility": "float64", "Hour_sin": "float64", "Hour_cos": "float64"
         })
-
         self.load_models()
 
     def get_last_digit(self, tick):
@@ -286,7 +278,6 @@ class TradingBot:
         return int(f"{tick_rounded:.2f}"[-1])
 
     def load_models(self):
-        """Load shared pre-trained models from GitHub."""
         try:
             self.markov_p1 = joblib.load(os.path.join(MODEL_DIR, "4markov_p1.joblib"))
             self.markov_p2 = joblib.load(os.path.join(MODEL_DIR, "4markov_p2.joblib"))
@@ -298,14 +289,12 @@ class TradingBot:
             self.markov_p2 = np.full((100, 10), 0.1)
             self.rf_digit_predictor = RandomForestClassifier(n_estimators=100, random_state=42)
             self.feature_scaler = StandardScaler()
-            # Create empty model files if they don't exist
             for model_file in ["4markov_p1.joblib", "4markov_p2.joblib", "4rf_digit_predictor.joblib", "4feature_scaler.joblib"]:
                 model_path = os.path.join(MODEL_DIR, model_file)
                 if not os.path.exists(model_path):
                     joblib.dump(self.__dict__[model_file.split('4')[1].split('.')[0]], model_path)
 
     def save_models(self):
-        """Save updated models and push to GitHub."""
         joblib.dump(self.markov_p1, os.path.join(MODEL_DIR, "4markov_p1.joblib"))
         joblib.dump(self.markov_p2, os.path.join(MODEL_DIR, "4markov_p2.joblib"))
         joblib.dump(self.rf_digit_predictor, os.path.join(MODEL_DIR, "4rf_digit_predictor.joblib"))
@@ -322,7 +311,7 @@ class TradingBot:
         else:
             self.amount = min(round(self.amount * 2.2, 2), max(self.account_balance * 0.9, 0))
             if self.amount <= 0:
-                self.amount = self.initial_amount  # Safeguard
+                self.amount = self.initial_amount
             self.consecutive_losses += 1
         self.price = self.amount
 
@@ -564,6 +553,7 @@ def main():
     init_github_repo()
     sync_with_github()
     init_db()
+
     if "logged_in" not in st.session_state:
         st.session_state["logged_in"] = False
     if "email" not in st.session_state:
@@ -607,12 +597,11 @@ def main():
                                 st.error("Your account is blocked.")
                             else:
                                 st.session_state["logged_in"] = True
-                                st.session_state["email"] = email
+                                st.session_state["email"] = email.lower()
                                 st.session_state["last_activity"] = time.time()
-                                # Initialize trading status from DB
                                 st.session_state["trading_active"] = user_data['trading_status'] == 'active'
-                                if st.session_state["trading_active"]:
-                                    update_trading_status(email, 'inactive')  # Reset after downtime
+                                if st.session_state["trading_active"] and "bot" not in st.session_state:
+                                    update_trading_status(email, 'inactive')
                                     st.warning("Trading was active but stopped due to downtime. Please restart.")
                                     st.session_state["trading_active"] = False
                                 st.success("Logged in successfully!")
@@ -621,18 +610,6 @@ def main():
                     else:
                         st.error("Please enter email and password.")
     else:
-        if not st.session_state["trading_active"] and time.time() - st.session_state["last_activity"] > 1200:
-            if "bot" in st.session_state:
-                st.session_state["bot"].stop_trading = True
-            st.session_state["logged_in"] = False
-            st.session_state["email"] = None
-            st.session_state.pop("bot", None)
-            st.session_state.pop("thread", None)
-            st.session_state["trading_active"] = False
-            update_trading_status(st.session_state["email"], 'inactive')
-            st.warning("Logged out due to inactivity.")
-            return
-
         user_data = check_subscription_status(st.session_state["email"])
         if not user_data:
             st.error("User not found.")
@@ -647,6 +624,17 @@ def main():
             st.markdown("[Pay 70 GBP via Skrill](https://skrill.me/rq/John/70/GBP?key=p56pcU69FeFTB70NHi9Qh3Q2RQ8)")
             st.write("After payment, contact the administrator to activate your account.")
             st.session_state["logged_in"] = False
+            return
+        if not st.session_state["trading_active"] and time.time() - st.session_state["last_activity"] > 1200:
+            if "bot" in st.session_state:
+                st.session_state["bot"].stop_trading = True
+            st.session_state["logged_in"] = False
+            st.session_state["email"] = None
+            st.session_state.pop("bot", None)
+            st.session_state.pop("thread", None)
+            st.session_state["trading_active"] = False
+            update_trading_status(st.session_state["email"], 'inactive')
+            st.warning("Logged out due to inactivity.")
             return
 
         st.title("Trading Dashboard")
@@ -687,9 +675,20 @@ def main():
                             st.session_state["trading_active"] = False
                             update_trading_status(st.session_state["email"], 'inactive')
                             st.warning("Bot not found. Trading status reset.")
-        
+
         with col2:
             st.subheader("Account Status")
+            st.write(f"Subscription Status: {user_data['subscription_status']}")
+            if user_data['subscription_status'] == 'trial':
+                trial_start = datetime.fromisoformat(user_data['trial_start_date'])
+                days_left = 7 - (datetime.now() - trial_start).days
+                st.write(f"Trial days left: {max(days_left, 0)}")
+            elif user_data['subscription_status'] == 'active':
+                if user_data['last_payment_date']:
+                    last_payment = datetime.fromisoformat(user_data['last_payment_date'])
+                    next_payment = last_payment + timedelta(days=30)
+                    days_until_next = (next_payment - datetime.now()).days
+                    st.write(f"Next payment due in: {max(days_until_next, 0)} days")
             if "bot" in st.session_state:
                 bot = st.session_state["bot"]
                 st.metric("Balance", f"${bot.account_balance:.2f}")
@@ -709,6 +708,33 @@ def main():
                 st.session_state["trading_active"] = False
                 update_trading_status(st.session_state["email"], 'inactive')
                 st.success("Logged out successfully!")
+
+        st.subheader("Account Management")
+        col_manage1, col_manage2 = st.columns(2)
+        with col_manage1:
+            with st.form("change_password_form"):
+                old_password = st.text_input("Old Password", type="password")
+                new_password = st.text_input("New Password", type="password")
+                submit = st.form_submit_button("Change Password")
+                if submit:
+                    if old_password and new_password:
+                        if change_password(st.session_state["email"], old_password, new_password):
+                            st.success("Password changed successfully!")
+                        else:
+                            st.error("Incorrect old password.")
+                    else:
+                        st.error("Please fill in both fields.")
+        with col_manage2:
+            if st.button("Delete Account", disabled=st.session_state["trading_active"]):
+                if st.checkbox("Are you sure you want to delete your account? This action cannot be undone."):
+                    if st.button("Confirm Delete"):
+                        delete_user(st.session_state["email"])
+                        st.success("Account deleted successfully.")
+                        st.session_state["logged_in"] = False
+                        st.session_state["email"] = None
+                        st.session_state.pop("bot", None)
+                        st.session_state.pop("thread", None)
+                        st.session_state["trading_active"] = False
 
         st.subheader("Trade Output")
         session_id = st.session_state["email"]
