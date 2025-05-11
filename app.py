@@ -143,19 +143,29 @@ def register_user(name, email, password):
 
 def login_user(email, password):
     email = email.lower()
+    print(f"DEBUG: Connecting to database at {DB_PATH}")  # Print DB path for verification
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
+
     try:
-        c.execute("SELECT password_hash FROM users WHERE email = ?", (email,))
+        c.execute("SELECT email, password_hash FROM users WHERE email = ?", (email,))
         result = c.fetchone()
+        print(f"DEBUG: Query result = {result}")  # Print database result
+        
         if result:
-            stored_hash = result[0]
-            # If stored_hash is a string, encode it to bytes; if it's already bytes, use it as is
+            stored_hash = result[1]
             if isinstance(stored_hash, str):
                 stored_hash = stored_hash.encode('utf-8')
-            # Compare the provided password with the stored hash
-            return bcrypt.checkpw(password.encode("utf-8"), stored_hash)
-        return False
+
+            if bcrypt.checkpw(password.encode("utf-8"), stored_hash):
+                print("DEBUG: Password matched!")
+                return {"success": True, "message": "Login successful"}
+            else:
+                print("DEBUG: Incorrect password")
+                return {"success": False, "message": "Incorrect password"}
+        print("DEBUG: User not found")
+        return {"success": False, "message": "User not found"}
+
     finally:
         conn.close()
 
