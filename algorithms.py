@@ -255,7 +255,7 @@ class DigitEvenOdd(TradingAlgorithm):
         if len(self.digit_history) >= 3:
             features = self.get_features()
             if features:
-                target = 0 capitaine if last_digit % 2 == 0 else 1
+                target = 0 if last_digit % 2 == 0 else 1
                 self.training_data.append(features)
                 self.training_targets.append(target)
                 self.training_weights.append(1.0)
