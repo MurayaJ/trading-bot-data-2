@@ -1,4 +1,3 @@
-#This file centralizes database operations, moved from app.py.
 import sqlite3
 import bcrypt
 from datetime import datetime, timedelta
@@ -22,6 +21,12 @@ def init_db():
             subscription_status TEXT,
             last_payment_date TEXT,
             trading_status TEXT DEFAULT 'inactive'
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS reset_codes (
+            email TEXT PRIMARY KEY,
+            reset_code TEXT
         )
     """)
     c.execute("PRAGMA table_info(users)")
@@ -135,30 +140,31 @@ def update_trading_status(email, status):
     finally:
         conn.close()
 
-def change_password(email, old_password, new_password):
-    """Change user password."""
+def save_reset_code(email, reset_code):
+    """Save a reset code for the user."""
     email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
-    try:
-        c.execute("SELECT password_hash FROM users WHERE email = ?", (email,))
-        result = c.fetchone()
-        if result and bcrypt.checkpw(old_password.encode("utf-8"), result[0].encode('utf-8')):
-            new_hash = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode('utf-8')
-            c.execute("UPDATE users SET password_hash = ? WHERE email = ?", (new_hash, email))
-            conn.commit()
-            return True
-        return False
-    finally:
-        conn.close()
+    c.execute("INSERT OR REPLACE INTO reset_codes (email, reset_code) VALUES (?, ?)", (email, reset_code))
+    conn.commit()
+    conn.close()
 
-def delete_user(email):
-    """Delete a user account."""
+def verify_reset_code(email, reset_code):
+    """Verify a reset code."""
     email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
-    try:
-        c.execute("DELETE FROM users WHERE email = ?", (email,))
-        conn.commit()
-    finally:
-        conn.close()
+    c.execute("SELECT reset_code FROM reset_codes WHERE email = ?", (email,))
+    result = c.fetchone()
+    conn.close()
+    return result and result[0] == reset_code
+
+def reset_password(email, new_password):
+    """Reset user password."""
+    email = email.lower()
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    c = conn.cursor()
+    new_hash = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode('utf-8')
+    c.execute("UPDATE users SET password_hash = ? WHERE email = ?", (new_hash, email))
+    conn.commit()
+    conn.close()
