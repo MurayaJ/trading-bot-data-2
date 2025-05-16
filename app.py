@@ -103,6 +103,7 @@ def send_reset_email(email, reset_code):
         st.error("Failed to send reset email. Please try again later.")
 
 def main():
+    # Custom CSS for better UI
     st.markdown("""
         <style>
         .stButton>button {
@@ -123,6 +124,7 @@ def main():
         </style>
     """, unsafe_allow_html=True)
 
+    # Initialize app components
     init_github_repo()
     sync_with_github()
     init_db()
@@ -137,6 +139,7 @@ def main():
     if "trading_active" not in st.session_state:
         st.session_state["trading_active"] = False
 
+    # Login/Register/Forgot Password Section
     if not st.session_state["logged_in"]:
         st.title("Trading Bot")
         option = st.selectbox("Choose an option", ["Login", "Register", "Forgot Password"])
@@ -185,7 +188,7 @@ def main():
                                         st.warning("Trading was active but stopped due to downtime. Please restart.")
                                         st.session_state["trading_active"] = False
                                     st.success("Logged in successfully! Dashboard is now available below.")
-                                    st.experimental_rerun()
+                                    st.rerun()  # Replaced st.experimental_rerun()
                             else:
                                 st.error("Invalid email or password.")
                         else:
@@ -221,6 +224,7 @@ def main():
                         else:
                             st.error("Please fill in all fields.")
     else:
+        # Check user status
         user_data = check_subscription_status(st.session_state["email"])
         if not user_data:
             st.error("User not found.")
@@ -236,6 +240,7 @@ def main():
             st.write("After payment, contact the administrator to activate your account.")
             st.session_state["logged_in"] = False
             return
+        # Inactivity logout
         if not st.session_state["trading_active"] and time.time() - st.session_state["last_activity"] > 1200:
             email = st.session_state["email"]
             if "bot" in st.session_state:
@@ -250,6 +255,7 @@ def main():
             st.warning("Logged out due to inactivity.")
             return
 
+        # Dashboard
         st.title("Trading Dashboard")
         st.write(f"Welcome, {user_data['name']} ({st.session_state['email']})")
 
@@ -301,7 +307,7 @@ def main():
             st.subheader("Account Status")
             st.write(f"Subscription Status: {user_data['subscription_status']}")
             if user_data['subscription_status'] == 'trial':
-                trial_start = datetime.fromisoformat(user_data['trial_start_date'])
+                trial_start = datetime.from belts(user_data['trial_start_date'])
                 days_left = 7 - (datetime.now() - trial_start).days
                 st.write(f"Trial days left: {max(days_left, 0)}")
             elif user_data['subscription_status'] == 'active':
@@ -332,8 +338,9 @@ def main():
                     if email is not None:
                         update_trading_status(email, 'inactive')
                     st.success("Logged out successfully!")
-                    st.experimental_rerun()
+                    st.rerun()  # Replaced st.experimental_rerun()
 
+        # Trade Output Section
         st.subheader("Trade Output")
         session_id = st.session_state["email"]
         output_container = st.empty()
