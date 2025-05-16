@@ -1,8 +1,7 @@
 #This file contains utility functions, primarily for GitHub integration.
-
 import subprocess
-import os
 import logging
+import os
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -15,5 +14,7 @@ def commit_and_push():
         if result.returncode == 0 or "nothing to commit" in result.stdout:
             subprocess.run(["git", "push", "origin", "main"], cwd=os.getcwd(), check=True, capture_output=True, text=True)
             logging.info("Successfully pushed changes to GitHub.")
+        else:
+            logging.warning("No changes to commit.")
     except subprocess.CalledProcessError as e:
         logging.error(f"Git commit/push failed: {e.stderr}")
