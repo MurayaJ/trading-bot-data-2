@@ -14,7 +14,8 @@ from sklearn.preprocessing import StandardScaler
 from db_utils import update_trading_status
 from utils import commit_and_push
 
-MODEL_DIR = "models"
+BASE_DIR = "trading_bot_data"
+MODEL_DIR = os.path.join(BASE_DIR, "models")
 
 class TradingAlgorithm:
     """Base class for trading algorithms."""
@@ -172,7 +173,6 @@ class TradingAlgorithm:
             self.output.append("Reconnecting in 5 seconds...")
             time.sleep(5)
 
-    # Abstract methods to be implemented by subclasses
     def load_models(self):
         raise NotImplementedError("Subclasses must implement load_models")
 
@@ -214,27 +214,30 @@ class DigitEvenOdd(TradingAlgorithm):
         self.load_models()
 
     def load_models(self):
+        model_dir = os.path.abspath(MODEL_DIR)
+        os.makedirs(model_dir, exist_ok=True)
         try:
-            self.markov_p1 = joblib.load(os.path.join(MODEL_DIR, self.model_paths["markov_p1"]))
-            self.markov_p2 = joblib.load(os.path.join(MODEL_DIR, self.model_paths["markov_p2"]))
-            self.rf_digit_predictor = joblib.load(os.path.join(MODEL_DIR, self.model_paths["rf_digit_predictor"]))
-            self.feature_scaler = joblib.load(os.path.join(MODEL_DIR, self.model_paths["feature_scaler"]))
+            self.markov_p1 = joblib.load(os.path.join(model_dir, self.model_paths["markov_p1"]))
+            self.markov_p2 = joblib.load(os.path.join(model_dir, self.model_paths["markov_p2"]))
+            self.rf_digit_predictor = joblib.load(os.path.join(model_dir, self.model_paths["rf_digit_predictor"]))
+            self.feature_scaler = joblib.load(os.path.join(model_dir, self.model_paths["feature_scaler"]))
+            self.output.append("Models loaded successfully.")
         except Exception as e:
-            self.output.append(f"Error loading models: {e}")
+            self.output.append(f"Error loading models: {e}. Initializing new models.")
             self.markov_p1 = np.full((10, 10), 0.1)
             self.markov_p2 = np.full((100, 10), 0.1)
             self.rf_digit_predictor = RandomForestClassifier(n_estimators=100, random_state=42)
             self.feature_scaler = StandardScaler()
-            for key, filename in self.model_paths.items():
-                model_path = os.path.join(MODEL_DIR, filename)
-                if not os.path.exists(model_path):
-                    joblib.dump(getattr(self, key), model_path)
+            self.save_models()
 
     def save_models(self):
-        joblib.dump(self.markov_p1, os.path.join(MODEL_DIR, self.model_paths["markov_p1"]))
-        joblib.dump(self.markov_p2, os.path.join(MODEL_DIR, self.model_paths["markov_p2"]))
-        joblib.dump(self.rf_digit_predictor, os.path.join(MODEL_DIR, self.model_paths["rf_digit_predictor"]))
-        joblib.dump(self.feature_scaler, os.path.join(MODEL_DIR, self.model_paths["feature_scaler"]))
+        model_dir = os.path.abspath(MODEL_DIR)
+        os.makedirs(model_dir, exist_ok=True)
+        joblib.dump(self.markov_p1, os.path.join(model_dir, self.model_paths["markov_p1"]))
+        joblib.dump(self.markov_p2, os.path.join(model_dir, self.model_paths["markov_p2"]))
+        joblib.dump(self.rf_digit_predictor, os.path.join(model_dir, self.model_paths["rf_digit_predictor"]))
+        joblib.dump(self.feature_scaler, os.path.join(model_dir, self.model_paths["feature_scaler"]))
+        self.output.append(f"Models saved to {model_dir}")
         commit_and_push()
 
     def get_features(self):
@@ -252,7 +255,7 @@ class DigitEvenOdd(TradingAlgorithm):
         if len(self.digit_history) >= 3:
             features = self.get_features()
             if features:
-                target = 0 if last_digit % 2 == 0 else 1
+                target = 0 capitaine if last_digit % 2 == 0 else 1
                 self.training_data.append(features)
                 self.training_targets.append(target)
                 self.training_weights.append(1.0)
@@ -261,9 +264,9 @@ class DigitEvenOdd(TradingAlgorithm):
                     self.training_targets.pop(0)
                     self.training_weights.pop(0)
                 self.training_samples += 1
-                if self.training_samples % 100 == 0:
-                    self.save_models()
+                if self.training_samples >= 100 and self.training_samples % 100 == 0:
                     self.train_rf_predictor()
+                    self.save_models()
 
     def predict_one_step(self, d_t, d_t_minus_1=None):
         if d_t_minus_1 is not None:
