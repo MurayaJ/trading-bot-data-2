@@ -14,6 +14,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import secrets
 from datetime import datetime, timedelta
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -85,7 +86,7 @@ def sync_with_github():
 def send_reset_email(email, reset_code):
     """Send a password reset code to the user's email."""
     sender_email = "virtual101assistance@gmail.com"
-    sender_password = "your_app_password"  # Replace with app-specific password if 2FA is enabled
+    sender_password = "john0705168"  # Replace with app-specific password if 2FA is enabled on Gmail
     message = MIMEMultipart("alternative")
     message["Subject"] = "Password Reset Code"
     message["From"] = sender_email
@@ -98,9 +99,47 @@ def send_reset_email(email, reset_code):
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, email, message.as_string())
         logging.info(f"Reset code sent to {email}")
+        return True
     except Exception as e:
         logging.error(f"Failed to send reset email: {e}")
-        st.error("Failed to send reset email. Please try again later.")
+        return False
+
+def generate_reset_code(email):
+    """Generate and save a reset code for the user if the email exists."""
+    conn = get_db_connection()
+    user = conn.execute('SELECT * FROM users WHERE email = ?', (email.lower(),)).fetchone()
+    if user:
+        reset_code = secrets.token_urlsafe(6)
+        expiry = datetime.now() + timedelta(hours=1)
+        conn.execute('INSERT INTO password_resets (email, reset_code, expiry, used) VALUES (?, ?, ?, ?)',
+                     (email.lower(), reset_code, expiry.isoformat(), False))
+        conn.commit()
+        conn.close()
+        return reset_code
+    conn.close()
+    return None
+
+def verify_reset_code(email, reset_code):
+    """Verify the reset code for the user."""
+    conn = get_db_connection()
+    now = datetime.now()
+    reset = conn.execute('SELECT * FROM password_resets WHERE email = ? AND reset_code = ? AND expiry > ? AND used = ?',
+                         (email.lower(), reset_code, now.isoformat(), False)).fetchone()
+    if reset:
+        conn.execute('UPDATE password_resets SET used = ? WHERE id = ?', (True, reset['id']))
+        conn.commit()
+        conn.close()
+        return True
+    conn.close()
+    return False
+
+def reset_password(email, new_password):
+    """Reset the user's password."""
+    hashed_password = generate_password_hash(new_password)
+    conn = get_db_connection()
+    conn.execute('UPDATE users SET password = ? WHERE email = ?', (hashed_password, email.lower()))
+    conn.commit()
+    conn.close()
 
 def main():
     # Custom CSS for better UI
@@ -175,7 +214,7 @@ def main():
                                 if user_data["subscription_status"] == "expired":
                                     st.error("Your subscription has expired. Please renew to continue.")
                                     st.markdown("[Pay 70 GBP via Skrill](https://skrill.me/rq/John/70/GBP?key=p56pcU69FeFTB70NHi9Qh3Q2RQ8)")
-                                    st.write("After payment, contact the administrator to activate your account.")
+                                    st.write("After payment, contact the administrator via Telegram at t.me/atlanettrading or email virtual101assistance@gmail.com for activation.")
                                 elif user_data["subscription_status"] == "blocked":
                                     st.error("Your account is blocked.")
                                 else:
@@ -188,7 +227,7 @@ def main():
                                         st.warning("Trading was active but stopped due to downtime. Please restart.")
                                         st.session_state["trading_active"] = False
                                     st.success("Logged in successfully! Dashboard is now available below.")
-                                    st.rerun()  # Replaced st.experimental_rerun()
+                                    st.rerun()
                             else:
                                 st.error("Invalid email or password.")
                         else:
@@ -201,10 +240,14 @@ def main():
                 if submit:
                     with st.spinner("Sending reset code..."):
                         if email:
-                            reset_code = secrets.token_urlsafe(6)
-                            save_reset_code(email, reset_code)
-                            send_reset_email(email, reset_code)
-                            st.success("A reset code has been sent to your email.")
+                            reset_code = generate_reset_code(email)
+                            if reset_code:
+                                if send_reset_email(email, reset_code):
+                                    st.success("A reset code has been sent to your email.")
+                                else:
+                                    st.error("Failed to send reset email. Please try again later.")
+                            else:
+                                st.success("If the email exists, a reset code has been sent.")
                         else:
                             st.error("Please enter your email.")
 
@@ -237,7 +280,7 @@ def main():
         elif user_data["subscription_status"] == "expired" and not st.session_state["trading_active"]:
             st.error("Your subscription has expired. Please renew to continue.")
             st.markdown("[Pay 70 GBP via Skrill](https://skrill.me/rq/John/70/GBP?key=p56pcU69FeFTB70NHi9Qh3Q2RQ8)")
-            st.write("After payment, contact the administrator to activate your account.")
+            st.write("After payment, contact the administrator via Telegram at t.me/atlanettrading or email virtual101assistance@gmail.com for activation.")
             st.session_state["logged_in"] = False
             return
         # Inactivity logout
@@ -307,7 +350,6 @@ def main():
             st.subheader("Account Status")
             st.write(f"Subscription Status: {user_data['subscription_status']}")
             if user_data['subscription_status'] == 'trial':
-                #trial_start = datetime.from belts(user_data['trial_start_date'])
                 trial_start = datetime.fromisoformat(user_data['trial_start_date'])
                 days_left = 7 - (datetime.now() - trial_start).days
                 st.write(f"Trial days left: {max(days_left, 0)}")
@@ -339,7 +381,7 @@ def main():
                     if email is not None:
                         update_trading_status(email, 'inactive')
                     st.success("Logged out successfully!")
-                    st.rerun()  # Replaced st.experimental_rerun()
+                    st.rerun()
 
         # Trade Output Section
         st.subheader("Trade Output")
