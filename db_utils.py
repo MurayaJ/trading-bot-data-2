@@ -2,6 +2,7 @@ import sqlite3
 import bcrypt
 from datetime import datetime, timedelta
 import os
+import secrets
 
 DB_PATH = "db/trading_users.db"
 
@@ -11,6 +12,7 @@ def init_db():
         raise ValueError(f"Error: Database file '{DB_PATH}' does not exist!")
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
+    # Create users table if it doesn't exist
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -23,12 +25,17 @@ def init_db():
             trading_status TEXT DEFAULT 'inactive'
         )
     """)
+    # Create password_resets table (replacing reset_codes) with expiry and usage tracking
     c.execute("""
-        CREATE TABLE IF NOT EXISTS reset_codes (
-            email TEXT PRIMARY KEY,
-            reset_code TEXT
+        CREATE TABLE IF NOT EXISTS password_resets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            reset_code TEXT NOT NULL,
+            expiry TEXT NOT NULL,
+            used BOOLEAN DEFAULT False
         )
     """)
+    # Check and add missing columns to users table dynamically
     c.execute("PRAGMA table_info(users)")
     columns = [row[1] for row in c.fetchall()]
     for col in ["password_hash", "trial_start_date", "subscription_status", "last_payment_date", "trading_status"]:
@@ -140,31 +147,51 @@ def update_trading_status(email, status):
     finally:
         conn.close()
 
-def save_reset_code(email, reset_code):
-    """Save a reset code for the user."""
+def generate_reset_code(email):
+    """Generate and save a reset code for the user if the email exists."""
     email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO reset_codes (email, reset_code) VALUES (?, ?)", (email, reset_code))
-    conn.commit()
-    conn.close()
+    try:
+        c.execute("SELECT * FROM users WHERE email = ?", (email,))
+        user = c.fetchone()
+        if user:
+            reset_code = secrets.token_urlsafe(6)
+            expiry = (datetime.now() + timedelta(hours=1)).isoformat()
+            c.execute("INSERT INTO password_resets (email, reset_code, expiry, used) VALUES (?, ?, ?, ?)",
+                      (email, reset_code, expiry, False))
+            conn.commit()
+            return reset_code
+        return None
+    finally:
+        conn.close()
 
 def verify_reset_code(email, reset_code):
-    """Verify a reset code."""
+    """Verify the reset code for the user."""
     email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
-    c.execute("SELECT reset_code FROM reset_codes WHERE email = ?", (email,))
-    result = c.fetchone()
-    conn.close()
-    return result and result[0] == reset_code
+    try:
+        now = datetime.now().isoformat()
+        c.execute("SELECT * FROM password_resets WHERE email = ? AND reset_code = ? AND expiry > ? AND used = ?",
+                  (email, reset_code, now, False))
+        reset = c.fetchone()
+        if reset:
+            c.execute("UPDATE password_resets SET used = ? WHERE id = ?", (True, reset[0]))
+            conn.commit()
+            return True
+        return False
+    finally:
+        conn.close()
 
 def reset_password(email, new_password):
     """Reset user password."""
     email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
-    new_hash = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode('utf-8')
-    c.execute("UPDATE users SET password_hash = ? WHERE email = ?", (new_hash, email))
-    conn.commit()
-    conn.close()
+    try:
+        new_hash = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode('utf-8')
+        c.execute("UPDATE users SET password_hash = ? WHERE email = ?", (new_hash, email))
+        conn.commit()
+    finally:
+        conn.close()
