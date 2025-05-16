@@ -307,7 +307,8 @@ def main():
             st.subheader("Account Status")
             st.write(f"Subscription Status: {user_data['subscription_status']}")
             if user_data['subscription_status'] == 'trial':
-                trial_start = datetime.from belts(user_data['trial_start_date'])
+                #trial_start = datetime.from belts(user_data['trial_start_date'])
+                trial_start = datetime.fromisoformat(user_data['trial_start_date'])
                 days_left = 7 - (datetime.now() - trial_start).days
                 st.write(f"Trial days left: {max(days_left, 0)}")
             elif user_data['subscription_status'] == 'active':
