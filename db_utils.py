@@ -2,6 +2,7 @@
 import sqlite3
 import bcrypt
 from datetime import datetime, timedelta
+import os
 
 DB_PATH = "db/trading_users.db"
 
