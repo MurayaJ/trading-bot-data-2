@@ -1,5 +1,4 @@
 # The refactored dashboard with algorithm selection.
-
 import streamlit as st
 import threading
 import time
@@ -10,6 +9,10 @@ import logging
 from algorithms import DigitEvenOdd
 from db_utils import *
 from utils import *
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import secrets
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -31,7 +34,6 @@ ALGORITHMS = {
             "feature_scaler": "4feature_scaler.joblib"
         }
     }
-    # Add "DIGIT_UNDER_5" and "DIGIT_OVER_4" later with their model paths
 }
 
 def is_valid_git_repo(path):
@@ -79,6 +81,26 @@ def sync_with_github():
         logging.error(f"Git pull failed: {e.stderr}")
         return False
 
+def send_reset_email(email, reset_code):
+    """Send a password reset code to the user's email."""
+    sender_email = "virtual101assistance@gmail.com"
+    sender_password = "your_app_password"  # Replace with app-specific password if 2FA is enabled
+    message = MIMEMultipart("alternative")
+    message["Subject"] = "Password Reset Code"
+    message["From"] = sender_email
+    message["To"] = email
+    text = f"Your reset code is: {reset_code}"
+    part = MIMEText(text, "plain")
+    message.attach(part)
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, email, message.as_string())
+        logging.info(f"Reset code sent to {email}")
+    except Exception as e:
+        logging.error(f"Failed to send reset email: {e}")
+        st.error("Failed to send reset email. Please try again later.")
+
 def main():
     st.markdown("""
         <style>
@@ -115,7 +137,8 @@ def main():
 
     if not st.session_state["logged_in"]:
         st.title("Trading Bot")
-        option = st.selectbox("Choose an option", ["Login", "Register"])
+        option = st.selectbox("Choose an option", ["Login", "Register", "Forgot Password"])
+
         if option == "Register":
             with st.form("register_form"):
                 name = st.text_input("Name")
@@ -131,7 +154,8 @@ def main():
                             st.error("Email already exists.")
                     else:
                         st.error("Please fill in all fields.")
-        else:
+
+        elif option == "Login":
             with st.form("login_form"):
                 email = st.text_input("Email")
                 password = st.text_input("Password", type="password")
@@ -161,6 +185,34 @@ def main():
                             st.error("Invalid email or password.")
                     else:
                         st.error("Please enter email and password.")
+
+        elif option == "Forgot Password":
+            with st.form("forgot_password_form"):
+                email = st.text_input("Email")
+                submit = st.form_submit_button("Send Reset Code")
+                if submit:
+                    if email:
+                        reset_code = secrets.token_urlsafe(6)
+                        save_reset_code(email, reset_code)
+                        send_reset_email(email, reset_code)
+                        st.success("A reset code has been sent to your email.")
+                    else:
+                        st.error("Please enter your email.")
+
+            with st.form("reset_password_form"):
+                email = st.text_input("Email for Reset")
+                reset_code = st.text_input("Reset Code")
+                new_password = st.text_input("New Password", type="password")
+                submit = st.form_submit_button("Reset Password")
+                if submit:
+                    if email and reset_code and new_password:
+                        if verify_reset_code(email, reset_code):
+                            reset_password(email, new_password)
+                            st.success("Password reset successfully! Please log in.")
+                        else:
+                            st.error("Invalid reset code.")
+                    else:
+                        st.error("Please fill in all fields.")
     else:
         user_data = check_subscription_status(st.session_state["email"])
         if not user_data:
@@ -265,35 +317,7 @@ def main():
                 st.session_state["trading_active"] = False
                 update_trading_status(st.session_state["email"], 'inactive')
                 st.success("Logged out successfully!")
-
-        st.subheader("Account Management")
-        col_manage1, col_manage2 = st.columns(2)
-        with col_manage1:
-            with st.form("change_password_form"):
-                old_password = st.text_input("Old Password", type="password")
-                new_password = st.text_input("New Password", type="password")
-                submit = st.form_submit_button("Change Password")
-                if submit:
-                    if old_password and new_password:
-                        if change_password(st.session_state["email"], old_password, new_password):
-                            st.success("Password changed successfully!")
-                            commit_and_push()
-                        else:
-                            st.error("Incorrect old password.")
-                    else:
-                        st.error("Please fill in both fields.")
-        with col_manage2:
-            if st.button("Delete Account", disabled=st.session_state["trading_active"]):
-                if st.checkbox("Are you sure you want to delete your account? This action cannot be undone."):
-                    if st.button("Confirm Delete"):
-                        delete_user(st.session_state["email"])
-                        st.success("Account deleted successfully.")
-                        st.session_state["logged_in"] = False
-                        st.session_state["email"] = None
-                        st.session_state.pop("bot", None)
-                        st.session_state.pop("thread", None)
-                        st.session_state["trading_active"] = False
-                        commit_and_push()
+                st.experimental_rerun()
 
         st.subheader("Trade Output")
         session_id = st.session_state["email"]
