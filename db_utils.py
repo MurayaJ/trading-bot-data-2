@@ -2,7 +2,7 @@ import sqlite3
 import bcrypt
 from datetime import datetime, timedelta
 import os
-import secrets
+from utils import commit_and_push
 
 DB_PATH = "db/trading_users.db"
 
@@ -12,7 +12,6 @@ def init_db():
         raise ValueError(f"Error: Database file '{DB_PATH}' does not exist!")
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
-    # Create users table if it doesn't exist
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,7 +24,6 @@ def init_db():
             trading_status TEXT DEFAULT 'inactive'
         )
     """)
-    # Create password_resets table (replacing reset_codes) with expiry and usage tracking
     c.execute("""
         CREATE TABLE IF NOT EXISTS password_resets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,7 +33,6 @@ def init_db():
             used BOOLEAN DEFAULT False
         )
     """)
-    # Check and add missing columns to users table dynamically
     c.execute("PRAGMA table_info(users)")
     columns = [row[1] for row in c.fetchall()]
     for col in ["password_hash", "trial_start_date", "subscription_status", "last_payment_date", "trading_status"]:
@@ -45,7 +42,7 @@ def init_db():
     conn.close()
 
 def register_user(name, email, password):
-    """Register a new user."""
+    """Register a new user and sync to repo."""
     email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
@@ -59,6 +56,7 @@ def register_user(name, email, password):
             VALUES (?, ?, ?, ?, ?, ?)
         """, (name, email, password_hash, trial_start_date, subscription_status, trading_status))
         conn.commit()
+        commit_and_push()  # Sync registration to repo
         return True
     except sqlite3.IntegrityError:
         return False
@@ -126,29 +124,31 @@ def check_subscription_status(email):
     return user_data
 
 def update_user_status(email, status):
-    """Update user subscription status."""
+    """Update user subscription status and sync to repo."""
     email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     try:
         c.execute("UPDATE users SET subscription_status = ? WHERE email = ?", (status, email))
         conn.commit()
+        commit_and_push()  # Sync status update
     finally:
         conn.close()
 
 def update_trading_status(email, status):
-    """Update user trading status."""
+    """Update user trading status and sync to repo."""
     email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     try:
         c.execute("UPDATE users SET trading_status = ? WHERE email = ?", (status, email))
         conn.commit()
+        commit_and_push()  # Sync trading status
     finally:
         conn.close()
 
 def generate_reset_code(email):
-    """Generate and save a reset code for the user if the email exists."""
+    """Generate and save a reset code, syncing to repo."""
     email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
@@ -161,13 +161,14 @@ def generate_reset_code(email):
             c.execute("INSERT INTO password_resets (email, reset_code, expiry, used) VALUES (?, ?, ?, ?)",
                       (email, reset_code, expiry, False))
             conn.commit()
+            commit_and_push()  # Sync reset code
             return reset_code
         return None
     finally:
         conn.close()
 
 def verify_reset_code(email, reset_code):
-    """Verify the reset code for the user."""
+    """Verify the reset code and sync usage update."""
     email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
@@ -179,13 +180,14 @@ def verify_reset_code(email, reset_code):
         if reset:
             c.execute("UPDATE password_resets SET used = ? WHERE id = ?", (True, reset[0]))
             conn.commit()
+            commit_and_push()  # Sync reset code usage
             return True
         return False
     finally:
         conn.close()
 
 def reset_password(email, new_password):
-    """Reset user password."""
+    """Reset user password and sync to repo."""
     email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
@@ -193,5 +195,6 @@ def reset_password(email, new_password):
         new_hash = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode('utf-8')
         c.execute("UPDATE users SET password_hash = ? WHERE email = ?", (new_hash, email))
         conn.commit()
+        commit_and_push()  # Sync password reset
     finally:
         conn.close()
