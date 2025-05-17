@@ -35,30 +35,32 @@ ALGORITHMS = {
             "markov_p2": "DIGIT_EVEN_ODD_models/4markov_p2.joblib",
             "rf_digit_predictor": "DIGIT_EVEN_ODD_models/4rf_digit_predictor.joblib",
             "feature_scaler": "DIGIT_EVEN_ODD_models/4feature_scaler.joblib"
-        }
+        },
+        "implemented": True
     },
     "DIGIT_OVER_4": {
         "module": "DIGIT_OVER_4",
-        "class": "DigitOver4",  # Placeholder, to be implemented
+        "class": "DigitOver4",
         "model_paths": {
             "markov_p1": "DIGIT_OVER_4_models/27markov_p1.joblib",
             "markov_p2": "DIGIT_OVER_4_models/27markov_p2.joblib",
             "rf_digit_predictor": "DIGIT_OVER_4_models/27rf_digit_predictor.joblib",
             "feature_scaler": "DIGIT_OVER_4_models/27feature_scaler.joblib"
-        }
+        },
+        "implemented": False
     },
     "DIGIT_UNDER_5": {
         "module": "DIGIT_UNDER_5",
-        "class": "DigitUnder5",  # Placeholder, to be implemented
+        "class": "DigitUnder5",
         "model_paths": {
             "markov_p1": "DIGIT_UNDER_5_models/17markov_p1.joblib",
             "markov_p2": "DIGIT_UNDER_5_models/17markov_p2.joblib",
             "rf_digit_predictor": "DIGIT_UNDER_5_models/17rf_digit_predictor.joblib",
             "feature_scaler": "DIGIT_UNDER_5_models/17feature_scaler.joblib"
-        }
+        },
+        "implemented": False
     }
 }
-
 
 def is_valid_git_repo(path):
     """Check if the directory is a valid Git repository."""
@@ -88,15 +90,12 @@ def init_github_repo():
     BASE_DIR = os.getcwd()
     logging.info(f"Initializing Git repository in {BASE_DIR}")
     
-    # Check if it's already a valid Git repository
     if not is_valid_git_repo(BASE_DIR):
         logging.warning("Not a valid Git repository. Attempting to initialize a new one.")
         try:
-            # Initialize a new Git repository
             subprocess.run(["git", "init"], cwd=BASE_DIR, check=True, capture_output=True, text=True)
             logging.info("Initialized new Git repository")
             
-            # Set remote origin
             subprocess.run(
                 ["git", "remote", "add", "origin", AUTH_GITHUB_REPO_URL],
                 cwd=BASE_DIR,
@@ -106,7 +105,6 @@ def init_github_repo():
             )
             logging.info(f"Set remote origin to {AUTH_GITHUB_REPO_URL}")
             
-            # Configure Git user
             subprocess.run(
                 ["git", "config", "user.email", "bot@tradingbot.com"],
                 cwd=BASE_DIR,
@@ -123,7 +121,6 @@ def init_github_repo():
             )
             logging.info("Configured Git user")
             
-            # Try to fetch or pull to sync with remote
             subprocess.run(
                 ["git", "fetch", "origin"],
                 cwd=BASE_DIR,
@@ -132,13 +129,13 @@ def init_github_repo():
                 text=True
             )
             subprocess.run(
-                ["git", "checkout", "main"],
+                ["git", "reset", "--hard", "origin/main"],
                 cwd=BASE_DIR,
                 check=True,
                 capture_output=True,
                 text=True
             )
-            logging.info("Synced with remote repository")
+            logging.info("Reset to origin/main")
         except subprocess.CalledProcessError as e:
             logging.error(f"Failed to initialize or configure Git repository: {e.stderr}")
             raise RuntimeError(f"Failed to set up Git repository: {e.stderr}")
@@ -368,7 +365,8 @@ def main():
         with col1:
             st.subheader("Trading Controls")
             st.write(f"**Trading Status:** {'Active' if st.session_state['trading_active'] else 'Inactive'}")
-            selected_algorithm = st.selectbox("Select Algorithm", list(ALGORITHMS.keys()))
+            available_algorithms = [alg for alg, info in ALGORITHMS.items() if info.get("implemented", False)]
+            selected_algorithm = st.selectbox("Select Algorithm", available_algorithms)
             algorithm_info = ALGORITHMS[selected_algorithm]
             try:
                 module = importlib.import_module(algorithm_info["module"])
