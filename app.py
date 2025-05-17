@@ -6,7 +6,7 @@ import os
 import subprocess
 import shutil
 import logging
-from algorithms import DigitEvenOdd
+import importlib
 from db_utils import *
 from utils import *
 import smtplib
@@ -23,17 +23,38 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 GITHUB_PAT = os.environ.get("GITHUB_PAT", "")
 PUBLIC_GITHUB_REPO_URL = "https://github.com/MurayaJ/trading-bot-data.git"
 AUTH_GITHUB_REPO_URL = f"https://MurayaJ:{GITHUB_PAT}@github.com/MurayaJ/trading-bot-data.git" if GITHUB_PAT else PUBLIC_GITHUB_REPO_URL
-BASE_DIR = "trading_bot_data"
+BASE_DIR = os.getcwd()  # Use Render's working directory (/app)
 
-# Algorithm definitions
+# Algorithm definitions with dynamic imports
 ALGORITHMS = {
     "DIGIT_EVEN_ODD": {
-        "class": DigitEvenOdd,
+        "module": "DIGIT_EVEN_ODD",
+        "class": "DigitEvenOdd",
         "model_paths": {
-            "markov_p1": "4markov_p1.joblib",
-            "markov_p2": "4markov_p2.joblib",
-            "rf_digit_predictor": "4rf_digit_predictor.joblib",
-            "feature_scaler": "4feature_scaler.joblib"
+            "markov_p1": "DIGIT_EVEN_ODD_models/4markov_p1.joblib",
+            "markov_p2": "DIGIT_EVEN_ODD_models/4markov_p2.joblib",
+            "rf_digit_predictor": "DIGIT_EVEN_ODD_models/4rf_digit_predictor.joblib",
+            "feature_scaler": "DIGIT_EVEN_ODD_models/4feature_scaler.joblib"
+        }
+    },
+    "DIGIT_OVER_4": {
+        "module": "DIGIT_OVER_4",
+        "class": "DigitOver4",  # Placeholder, to be implemented
+        "model_paths": {
+            "markov_p1": "DIGIT_OVER_4_models/27markov_p1.joblib",
+            "markov_p2": "DIGIT_OVER_4_models/27markov_p2.joblib",
+            "rf_digit_predictor": "DIGIT_OVER_4_models/27rf_digit_predictor.joblib",
+            "feature_scaler": "DIGIT_OVER_4_models/27feature_scaler.joblib"
+        }
+    },
+    "DIGIT_UNDER_5": {
+        "module": "DIGIT_UNDER_5",
+        "class": "DigitUnder5",  # Placeholder, to be implemented
+        "model_paths": {
+            "markov_p1": "DIGIT_UNDER_5_models/17markov_p1.joblib",
+            "markov_p2": "DIGIT_UNDER_5_models/17markov_p2.joblib",
+            "rf_digit_predictor": "DIGIT_UNDER_5_models/17rf_digit_predictor.joblib",
+            "feature_scaler": "DIGIT_UNDER_5_models/17feature_scaler.joblib"
         }
     }
 }
@@ -47,31 +68,18 @@ def is_valid_git_repo(path):
         return False
 
 def init_github_repo():
-    """Initialize the GitHub repository by cloning or ensuring it's a Git repo."""
+    """Set up the existing Git repository with authentication, no cloning."""
+    if not is_valid_git_repo(BASE_DIR):
+        logging.error("Not a valid git repository. Ensure Render deployment is correct.")
+        raise RuntimeError("Deployment directory is not a valid Git repository.")
     try:
-        if os.path.exists(BASE_DIR):
-            if os.path.exists(os.path.join(BASE_DIR, ".git")) and is_valid_git_repo(BASE_DIR):
-                logging.info("Existing Git repository found. Skipping clone.")
-                return
-            else:
-                logging.info("Removing invalid or non-Git directory.")
-                shutil.rmtree(BASE_DIR)
-        logging.info(f"Cloning repository from {AUTH_GITHUB_REPO_URL}")
-        subprocess.run(["git", "clone", AUTH_GITHUB_REPO_URL, BASE_DIR], check=True, capture_output=True, text=True)
+        subprocess.run(["git", "remote", "set-url", "origin", AUTH_GITHUB_REPO_URL], cwd=BASE_DIR, check=True, capture_output=True, text=True)
         subprocess.run(["git", "config", "user.email", "bot@tradingbot.com"], cwd=BASE_DIR, check=True, capture_output=True, text=True)
         subprocess.run(["git", "config", "user.name", "Trading Bot"], cwd=BASE_DIR, check=True, capture_output=True, text=True)
-        os.makedirs(os.path.join(BASE_DIR, "models"), exist_ok=True)
-        os.makedirs(os.path.join(BASE_DIR, "db"), exist_ok=True)
-        if not os.path.exists(os.path.join(BASE_DIR, "db", "trading_users.db")):
-            open(os.path.join(BASE_DIR, "db", "trading_users.db"), 'a').close()
+        logging.info("Git repository configured with authentication.")
     except subprocess.CalledProcessError as e:
-        logging.error(f"Failed to initialize GitHub repository: {e.stderr}")
-        os.makedirs(os.path.join(BASE_DIR, "models"), exist_ok=True)
-        os.makedirs(os.path.join(BASE_DIR, "db"), exist_ok=True)
-        if not os.path.exists(os.path.join(BASE_DIR, "db", "trading_users.db")):
-            open(os.path.join(BASE_DIR, "db", "trading_users.db"), 'a').close()
-    except Exception as e:
-        logging.error(f"Unexpected error during Git setup: {e}")
+        logging.error(f"Failed to configure Git repository: {e.stderr}")
+        raise
 
 def sync_with_github():
     """Pull latest changes from GitHub."""
@@ -86,7 +94,7 @@ def sync_with_github():
 def send_reset_email(email, reset_code):
     """Send a password reset code to the user's email."""
     sender_email = "virtual101assistance@gmail.com"
-    sender_password = "john0705168"  # Replace with app-specific password if 2FA is enabled on Gmail
+    sender_password = "john0705168"  # Replace with app-specific password if 2FA is enabled
     message = MIMEMultipart("alternative")
     message["Subject"] = "Password Reset Code"
     message["From"] = sender_email
@@ -103,43 +111,6 @@ def send_reset_email(email, reset_code):
     except Exception as e:
         logging.error(f"Failed to send reset email: {e}")
         return False
-
-def generate_reset_code(email):
-    """Generate and save a reset code for the user if the email exists."""
-    conn = get_db_connection()
-    user = conn.execute('SELECT * FROM users WHERE email = ?', (email.lower(),)).fetchone()
-    if user:
-        reset_code = secrets.token_urlsafe(6)
-        expiry = datetime.now() + timedelta(hours=1)
-        conn.execute('INSERT INTO password_resets (email, reset_code, expiry, used) VALUES (?, ?, ?, ?)',
-                     (email.lower(), reset_code, expiry.isoformat(), False))
-        conn.commit()
-        conn.close()
-        return reset_code
-    conn.close()
-    return None
-
-def verify_reset_code(email, reset_code):
-    """Verify the reset code for the user."""
-    conn = get_db_connection()
-    now = datetime.now()
-    reset = conn.execute('SELECT * FROM password_resets WHERE email = ? AND reset_code = ? AND expiry > ? AND used = ?',
-                         (email.lower(), reset_code, now.isoformat(), False)).fetchone()
-    if reset:
-        conn.execute('UPDATE password_resets SET used = ? WHERE id = ?', (True, reset['id']))
-        conn.commit()
-        conn.close()
-        return True
-    conn.close()
-    return False
-
-def reset_password(email, new_password):
-    """Reset the user's password."""
-    hashed_password = generate_password_hash(new_password)
-    conn = get_db_connection()
-    conn.execute('UPDATE users SET password = ? WHERE email = ?', (hashed_password, email.lower()))
-    conn.commit()
-    conn.close()
 
 def main():
     # Custom CSS for better UI
@@ -194,7 +165,7 @@ def main():
                         if name and email and password:
                             if register_user(name, email, password):
                                 st.success("Registered successfully! Please log in.")
-                                commit_and_push()
+                                commit_and_push()  # Ensure registration is synced
                             else:
                                 st.error("Email already exists.")
                         else:
@@ -261,6 +232,7 @@ def main():
                         if email and reset_code and new_password:
                             if verify_reset_code(email, reset_code):
                                 reset_password(email, new_password)
+                                commit_and_push()  # Ensure password reset is synced
                                 st.success("Password reset successfully! Please log in.")
                             else:
                                 st.error("Invalid reset code.")
@@ -306,8 +278,14 @@ def main():
         with col1:
             st.subheader("Trading Controls")
             st.write(f"**Trading Status:** {'Active' if st.session_state['trading_active'] else 'Inactive'}")
-            algorithm_options = list(ALGORITHMS.keys())
-            selected_algorithm = st.selectbox("Select Algorithm", algorithm_options)
+            selected_algorithm = st.selectbox("Select Algorithm", list(ALGORITHMS.keys()))
+            algorithm_info = ALGORITHMS[selected_algorithm]
+            try:
+                module = importlib.import_module(algorithm_info["module"])
+                bot_class = getattr(module, algorithm_info["class"])
+            except (ImportError, AttributeError) as e:
+                st.error(f"Error loading algorithm {selected_algorithm}: {e}. Please ensure the algorithm file is implemented.")
+                return
             app_id = st.text_input("App ID", key=f"app_id_{st.session_state['email']}")
             token = st.text_input("Token", type="password", key=f"token_{st.session_state['email']}")
             target_profit = st.number_input("Target Profit ($)", min_value=0.01, value=10.0, step=0.1)
@@ -318,10 +296,7 @@ def main():
                         with st.spinner("Starting trading..."):
                             if app_id and token and target_profit > 0:
                                 session_id = st.session_state["email"]
-                                algorithm_info = ALGORITHMS[selected_algorithm]
-                                bot_class = algorithm_info["class"]
-                                model_paths = algorithm_info["model_paths"]
-                                bot = bot_class(app_id, token, target_profit, session_id, model_paths)
+                                bot = bot_class(app_id, token, target_profit, session_id, algorithm_info["model_paths"])
                                 st.session_state["bot"] = bot
                                 st.session_state[f"output_{session_id}"] = []
                                 st.session_state["trading_active"] = True
