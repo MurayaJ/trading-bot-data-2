@@ -14,9 +14,6 @@ from sklearn.preprocessing import StandardScaler
 from db_utils import update_trading_status
 from utils import commit_and_push
 
-BASE_DIR = "trading_bot_data"
-MODEL_DIR = os.path.join(BASE_DIR, "models")
-
 class TradingAlgorithm:
     """Base class for trading algorithms."""
     def __init__(self, app_id, token, target_profit, session_id, model_paths):
@@ -214,13 +211,12 @@ class DigitEvenOdd(TradingAlgorithm):
         self.load_models()
 
     def load_models(self):
-        model_dir = os.path.abspath(MODEL_DIR)
-        os.makedirs(model_dir, exist_ok=True)
+        """Load models from the repo, initialize if missing."""
         try:
-            self.markov_p1 = joblib.load(os.path.join(model_dir, self.model_paths["markov_p1"]))
-            self.markov_p2 = joblib.load(os.path.join(model_dir, self.model_paths["markov_p2"]))
-            self.rf_digit_predictor = joblib.load(os.path.join(model_dir, self.model_paths["rf_digit_predictor"]))
-            self.feature_scaler = joblib.load(os.path.join(model_dir, self.model_paths["feature_scaler"]))
+            self.markov_p1 = joblib.load(self.model_paths["markov_p1"])
+            self.markov_p2 = joblib.load(self.model_paths["markov_p2"])
+            self.rf_digit_predictor = joblib.load(self.model_paths["rf_digit_predictor"])
+            self.feature_scaler = joblib.load(self.model_paths["feature_scaler"])
             self.output.append("Models loaded successfully.")
         except Exception as e:
             self.output.append(f"Error loading models: {e}. Initializing new models.")
@@ -231,14 +227,14 @@ class DigitEvenOdd(TradingAlgorithm):
             self.save_models()
 
     def save_models(self):
-        model_dir = os.path.abspath(MODEL_DIR)
-        os.makedirs(model_dir, exist_ok=True)
-        joblib.dump(self.markov_p1, os.path.join(model_dir, self.model_paths["markov_p1"]))
-        joblib.dump(self.markov_p2, os.path.join(model_dir, self.model_paths["markov_p2"]))
-        joblib.dump(self.rf_digit_predictor, os.path.join(model_dir, self.model_paths["rf_digit_predictor"]))
-        joblib.dump(self.feature_scaler, os.path.join(model_dir, self.model_paths["feature_scaler"]))
-        self.output.append(f"Models saved to {model_dir}")
-        commit_and_push()
+        """Save models to the repo and commit."""
+        os.makedirs(os.path.dirname(self.model_paths["markov_p1"]), exist_ok=True)
+        joblib.dump(self.markov_p1, self.model_paths["markov_p1"])
+        joblib.dump(self.markov_p2, self.model_paths["markov_p2"])
+        joblib.dump(self.rf_digit_predictor, self.model_paths["rf_digit_predictor"])
+        joblib.dump(self.feature_scaler, self.model_paths["feature_scaler"])
+        self.output.append(f"Models saved to {self.model_paths['markov_p1'].split('/')[0]}")
+        commit_and_push()  # Sync model updates to repo
 
     def get_features(self):
         if len(self.digit_history) < 3 or len(self.df) < 20:
