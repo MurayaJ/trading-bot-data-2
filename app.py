@@ -16,7 +16,7 @@ import secrets
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
 
-# Set up logging
+# Ensure logging is configured
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Define GitHub URLs
@@ -59,27 +59,117 @@ ALGORITHMS = {
     }
 }
 
+
 def is_valid_git_repo(path):
     """Check if the directory is a valid Git repository."""
+    logging.info(f"Checking if {path} is a valid Git repository")
+    if not os.path.exists(os.path.join(path, ".git")):
+        logging.error(f".git directory not found in {path}")
+        return False
     try:
-        subprocess.run(["git", "status"], cwd=path, check=True, capture_output=True, text=True)
+        result = subprocess.run(
+            ["git", "status"],
+            cwd=path,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        logging.info(f"Git status output: {result.stdout}")
         return True
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Git status failed: {e.stderr}")
+        return False
+    except FileNotFoundError:
+        logging.error("Git executable not found")
         return False
 
 def init_github_repo():
-    """Set up the existing Git repository with authentication, no cloning."""
+    """Set up or initialize the Git repository."""
+    BASE_DIR = os.getcwd()
+    logging.info(f"Initializing Git repository in {BASE_DIR}")
+    
+    # Check if it's already a valid Git repository
     if not is_valid_git_repo(BASE_DIR):
-        logging.error("Not a valid git repository. Ensure Render deployment is correct.")
-        raise RuntimeError("Deployment directory is not a valid Git repository.")
-    try:
-        subprocess.run(["git", "remote", "set-url", "origin", AUTH_GITHUB_REPO_URL], cwd=BASE_DIR, check=True, capture_output=True, text=True)
-        subprocess.run(["git", "config", "user.email", "bot@tradingbot.com"], cwd=BASE_DIR, check=True, capture_output=True, text=True)
-        subprocess.run(["git", "config", "user.name", "Trading Bot"], cwd=BASE_DIR, check=True, capture_output=True, text=True)
-        logging.info("Git repository configured with authentication.")
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Failed to configure Git repository: {e.stderr}")
-        raise
+        logging.warning("Not a valid Git repository. Attempting to initialize a new one.")
+        try:
+            # Initialize a new Git repository
+            subprocess.run(["git", "init"], cwd=BASE_DIR, check=True, capture_output=True, text=True)
+            logging.info("Initialized new Git repository")
+            
+            # Set remote origin
+            subprocess.run(
+                ["git", "remote", "add", "origin", AUTH_GITHUB_REPO_URL],
+                cwd=BASE_DIR,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            logging.info(f"Set remote origin to {AUTH_GITHUB_REPO_URL}")
+            
+            # Configure Git user
+            subprocess.run(
+                ["git", "config", "user.email", "bot@tradingbot.com"],
+                cwd=BASE_DIR,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Trading Bot"],
+                cwd=BASE_DIR,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            logging.info("Configured Git user")
+            
+            # Try to fetch or pull to sync with remote
+            subprocess.run(
+                ["git", "fetch", "origin"],
+                cwd=BASE_DIR,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            subprocess.run(
+                ["git", "checkout", "main"],
+                cwd=BASE_DIR,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            logging.info("Synced with remote repository")
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Failed to initialize or configure Git repository: {e.stderr}")
+            raise RuntimeError(f"Failed to set up Git repository: {e.stderr}")
+    else:
+        logging.info("Existing Git repository found. Configuring remote and user.")
+        try:
+            subprocess.run(
+                ["git", "remote", "set-url", "origin", AUTH_GITHUB_REPO_URL],
+                cwd=BASE_DIR,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "bot@tradingbot.com"],
+                cwd=BASE_DIR,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Trading Bot"],
+                cwd=BASE_DIR,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            logging.info("Git repository configured with authentication")
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Failed to configure existing Git repository: {e.stderr}")
+            raise
 
 def sync_with_github():
     """Pull latest changes from GitHub."""
