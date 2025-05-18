@@ -44,36 +44,36 @@ class TradingAlgorithm:
         })
 
     def on_open(self, ws):
-        auth_message = {
-            "authorize": self.token,
-            "app_id": self.app_id
-        }
+        auth_message = {"authorize": self.token}
         ws.send(json.dumps(auth_message))
         self.output.append("WebSocket opened and authorization sent.")
 
     def on_message(self, ws, message):
         data = json.loads(message)
-        self.process_message(data)
+        self.process_message(ws, data)
 
     def on_error(self, ws, error):
         self.output.append(f"WebSocket error: {error}")
 
     def on_close(self, ws, close_status_code, close_msg):
-        self.output.append("WebSocket closed.")
+        self.output.append(f"WebSocket closed: {close_status_code} - {close_msg}")
         self.is_trading = False
 
-    def process_message(self, data):
+    def process_message(self, ws, data):
         # Placeholder for message processing; to be overridden by subclasses
         pass
 
     def run(self):
-        self.is_trading = True
-        ws_url = "wss://ws.binaryws.com/websockets/v3?app_id=" + self.app_id
-        ws = websocket.WebSocketApp(
-            ws_url,
-            on_open=self.on_open,
-            on_message=self.on_message,
-            on_error=self.on_error,
-            on_close=self.on_close
-        )
-        ws.run_forever()
+        while not self.stop_trading:
+            ws_url = f"wss://ws.binaryws.com/websockets/v3?app_id={self.app_id}"
+            ws = websocket.WebSocketApp(
+                ws_url,
+                on_open=self.on_open,
+                on_message=self.on_message,
+                on_error=self.on_error,
+                on_close=self.on_close
+            )
+            ws.run_forever(ping_interval=20, ping_timeout=10)
+            if not self.stop_trading:
+                self.output.append("Connection closed. Reconnecting in 5 seconds...")
+                time.sleep(5)
