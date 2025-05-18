@@ -47,7 +47,7 @@ ALGORITHMS = {
             "rf_digit_predictor": "DIGIT_OVER_4_models/27rf_digit_predictor.joblib",
             "feature_scaler": "DIGIT_OVER_4_models/27feature_scaler.joblib"
         },
-        "implemented": False
+        "implemented": True
     },
     "DIGIT_UNDER_5": {
         "module": "DIGIT_UNDER_5",
