@@ -58,7 +58,7 @@ ALGORITHMS = {
             "rf_digit_predictor": "DIGIT_UNDER_5_models/17rf_digit_predictor.joblib",
             "feature_scaler": "DIGIT_UNDER_5_models/17feature_scaler.joblib"
         },
-        "implemented": False
+        "implemented": True  # Changed to True to make it selectable
     }
 }
 
