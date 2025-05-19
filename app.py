@@ -2,7 +2,6 @@ import streamlit as st
 import threading
 import time
 import os
-import subprocess
 import logging
 import importlib
 from db_utils import *
@@ -10,11 +9,6 @@ from datetime import datetime, timedelta
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-# GitHub Configuration
-GITHUB_PAT = os.environ.get("GITHUB_PAT", "")
-AUTH_GITHUB_REPO_URL = f"https://MurayaJ:{GITHUB_PAT}@github.com/MurayaJ/trading-bot-data.git" if GITHUB_PAT else "https://github.com/MurayaJ/trading-bot-data.git"
-BASE_DIR = os.getcwd()
 
 # Algorithm Definitions
 ALGORITHMS = {
@@ -53,33 +47,6 @@ ALGORITHMS = {
     }
 }
 
-def is_valid_git_repo(path):
-    """Check if the directory is a valid Git repository."""
-    if not os.path.exists(os.path.join(path, ".git")):
-        return False
-    try:
-        subprocess.run(["git", "status"], cwd=path, check=True, capture_output=True, text=True)
-        return True
-    except subprocess.CalledProcessError:
-        return False
-
-def init_github_repo():
-    """Initialize or configure the Git repository."""
-    if not is_valid_git_repo(BASE_DIR):
-        subprocess.run(["git", "init"], cwd=BASE_DIR, check=True, capture_output=True, text=True)
-        subprocess.run(["git", "remote", "add", "origin", AUTH_GITHUB_REPO_URL], cwd=BASE_DIR, check=True, capture_output=True, text=True)
-    subprocess.run(["git", "config", "user.email", "bot@tradingbot.com"], cwd=BASE_DIR, check=True, capture_output=True, text=True)
-    subprocess.run(["git", "config", "user.name", "Trading Bot"], cwd=BASE_DIR, check=True, capture_output=True, text=True)
-
-def sync_with_github():
-    """Pull latest changes from GitHub."""
-    try:
-        subprocess.run(["git", "pull", "origin", "main"], cwd=BASE_DIR, check=True, capture_output=True, text=True)
-        return True
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Git pull failed: {e.stderr}")
-        return False
-
 def main():
     # Custom CSS
     st.markdown("""
@@ -95,9 +62,7 @@ def main():
     """, unsafe_allow_html=True)
 
     # Initialize app
-    init_github_repo()
-    sync_with_github()
-    init_db()
+    init_db()  # Assumes db_utils.py is updated for PostgreSQL
 
     # Session state initialization
     if "logged_in" not in st.session_state:
@@ -120,13 +85,18 @@ def main():
                 password = st.text_input("Password", type="password")
                 submit = st.form_submit_button("Register")
                 if submit:
-                    if name and email and password:
-                        if register_user(name, email, password):
-                            st.success("Registered successfully! Please log in.")
+                    with st.spinner("Registering..."):
+                        if name and email and password:
+                            # Basic input validation
+                            if "@" in email and len(password) >= 6:
+                                if register_user(name, email, password):
+                                    st.success("Registered successfully! Please log in.")
+                                else:
+                                    st.error("Email already exists.")
+                            else:
+                                st.error("Invalid email or password (min 6 chars).")
                         else:
-                            st.error("Email already exists.")
-                    else:
-                        st.error("Please fill in all fields.")
+                            st.error("Please fill in all fields.")
 
         elif option == "Login":
             with st.form("login_form"):
@@ -134,59 +104,65 @@ def main():
                 password = st.text_input("Password", type="password")
                 submit = st.form_submit_button("Login")
                 if submit:
-                    if email and password:
-                        login_result = login_user(email, password)
-                        if login_result["success"]:
-                            user_data = check_subscription_status(email)
-                            if user_data["subscription_status"] in ["expired", "deactivated"]:
-                                st.error("Your subscription is inactive. Contact admin at t.me/atlanettrading.")
-                            elif user_data["subscription_status"] == "blocked":
-                                st.error("Your account is blocked.")
+                    with st.spinner("Logging in..."):
+                        if email and password:
+                            login_result = login_user(email, password)
+                            if login_result["success"]:
+                                user_data = check_subscription_status(email)
+                                if user_data["subscription_status"] in ["expired", "deactivated"]:
+                                    st.error("Your subscription is inactive. Contact admin at t.me/atlanettrading.")
+                                elif user_data["subscription_status"] == "blocked":
+                                    st.error("Your account is blocked.")
+                                else:
+                                    st.session_state["logged_in"] = True
+                                    st.session_state["email"] = email.lower()
+                                    st.session_state["trading_active"] = user_data["trading_status"] == "active"
+                                    if st.session_state["trading_active"]:
+                                        saved_state = get_trading_state(email)
+                                        if saved_state and "bot" not in st.session_state:
+                                            # Resume trading
+                                            available_algorithms = [alg for alg, info in ALGORITHMS.items() if info["implemented"]]
+                                            algo = saved_state.get("algorithm", available_algorithms[0])
+                                            try:
+                                                module = importlib.import_module(ALGORITHMS[algo]["module"])
+                                                bot_class = getattr(module, ALGORITHMS[algo]["class"])
+                                                bot = bot_class(saved_state["app_id"], saved_state["token"], saved_state["target_profit"], email, ALGORITHMS[algo]["model_paths"], saved_state)
+                                                st.session_state["bot"] = bot
+                                                thread = threading.Thread(target=bot.run)
+                                                st.session_state["thread"] = thread
+                                                thread.start()
+                                                st.info("Resumed active trading session.")
+                                            except Exception as e:
+                                                logging.error(f"Error loading bot: {e}")
+                                                st.error(f"Failed to resume trading: {e}")
+                                    st.success("Logged in successfully!")
+                                    st.rerun()
                             else:
-                                st.session_state["logged_in"] = True
-                                st.session_state["email"] = email.lower()
-                                st.session_state["trading_active"] = user_data["trading_status"] == "active"
-                                if st.session_state["trading_active"]:
-                                    saved_state = get_trading_state(email)
-                                    if saved_state and "bot" not in st.session_state:
-                                        # Resume trading
-                                        available_algorithms = [alg for alg, info in ALGORITHMS.items() if info["implemented"]]
-                                        algo = saved_state.get("algorithm", available_algorithms[0])
-                                        module = importlib.import_module(ALGORITHMS[algo]["module"])
-                                        bot_class = getattr(module, ALGORITHMS[algo]["class"])
-                                        bot = bot_class(saved_state["app_id"], saved_state["token"], saved_state["target_profit"], email, ALGORITHMS[algo]["model_paths"], saved_state)
-                                        st.session_state["bot"] = bot
-                                        thread = threading.Thread(target=bot.run)
-                                        st.session_state["thread"] = thread
-                                        thread.start()
-                                        st.info("Resumed active trading session.")
-                                st.success("Logged in successfully!")
-                                st.rerun()
+                                st.error("Invalid email or password.")
                         else:
-                            st.error("Invalid email or password.")
-                    else:
-                        st.error("Please enter email and password.")
+                            st.error("Please enter email and password.")
 
         elif option == "Forgot Password":
-            st.write("Please contact the admin via Telegram at [t.me/atlanettrading](https://t.me/atlanettrading) to reset your password.")
+            st.write("Contact admin via Telegram at [t.me/atlanettrading](https://t.me/atlanettrading) to reset your password.")
             with st.form("reset_password_form"):
                 email = st.text_input("Registered Email")
                 new_password = st.text_input("New Password", type="password")
                 confirm_password = st.text_input("Confirm Password", type="password")
                 submit = st.form_submit_button("Save New Password")
                 if submit:
-                    if email and new_password and confirm_password:
-                        if new_password == confirm_password:
-                            user_data = get_user_data(email)
-                            if user_data:
-                                reset_user_password(email, new_password)  # Admin must have reset it
-                                st.success("Password updated successfully! Please log in.")
+                    with st.spinner("Saving new password..."):
+                        if email and new_password and confirm_password:
+                            if new_password == confirm_password:
+                                user_data = get_user_data(email)
+                                if user_data:
+                                    reset_user_password(email, new_password)
+                                    st.success("Password updated successfully! Please log in.")
+                                else:
+                                    st.error("Email not registered.")
                             else:
-                                st.error("Email not registered.")
+                                st.error("Passwords do not match.")
                         else:
-                            st.error("Passwords do not match.")
-                    else:
-                        st.error("Please fill in all fields.")
+                            st.error("Please fill in all fields.")
 
     else:
         user_data = check_subscription_status(st.session_state["email"])
@@ -219,19 +195,24 @@ def main():
             with col_btn1:
                 if not st.session_state["trading_active"]:
                     if st.button("Start Trading"):
-                        if app_id and token and target_profit > 0:
-                            session_id = st.session_state["email"]
-                            bot = bot_class(app_id, token, target_profit, session_id, algorithm_info["model_paths"])
-                            st.session_state["bot"] = bot
-                            st.session_state["trading_active"] = True
-                            update_trading_status(session_id, "active")
-                            save_trading_state(session_id, {"algorithm": selected_algorithm, "app_id": app_id, "token": token, "target_profit": target_profit})
-                            thread = threading.Thread(target=bot.run)
-                            st.session_state["thread"] = thread
-                            thread.start()
-                            st.success("Trading started!")
-                        else:
-                            st.error("Please enter App ID, Token, and a valid Target Profit.")
+                        with st.spinner("Starting trading..."):
+                            if app_id and token and target_profit > 0:
+                                session_id = st.session_state["email"]
+                                try:
+                                    bot = bot_class(app_id, token, target_profit, session_id, algorithm_info["model_paths"])
+                                    st.session_state["bot"] = bot
+                                    st.session_state["trading_active"] = True
+                                    update_trading_status(session_id, "active")
+                                    save_trading_state(session_id, {"algorithm": selected_algorithm, "app_id": app_id, "token": token, "target_profit": target_profit})
+                                    thread = threading.Thread(target=bot.run)
+                                    st.session_state["thread"] = thread
+                                    thread.start()
+                                    st.success("Trading started!")
+                                except Exception as e:
+                                    logging.error(f"Error starting bot: {e}")
+                                    st.error(f"Failed to start trading: {e}")
+                            else:
+                                st.error("Please enter App ID, Token, and a valid Target Profit.")
             with col_btn2:
                 if st.session_state["trading_active"]:
                     if st.button("Stop Trading"):
@@ -263,28 +244,35 @@ def main():
             if st.session_state["trading_active"]:
                 st.write("Logout disabled during trading.")
             if st.button("Logout", disabled=st.session_state["trading_active"]):
-                if "bot" in st.session_state:
-                    st.session_state["bot"].stop_trading = True
-                    st.session_state["thread"].join()
-                st.session_state["logged_in"] = False
-                st.session_state["email"] = None
-                st.session_state["trading_active"] = False
-                update_trading_status(st.session_state["email"], "inactive")
-                st.session_state.pop("bot", None)
-                st.session_state.pop("thread", None)
-                st.success("Logged out successfully!")
-                st.rerun()
+                with st.spinner("Logging out..."):
+                    if "bot" in st.session_state:
+                        st.session_state["bot"].stop_trading = True
+                        st.session_state["thread"].join()
+                    st.session_state["logged_in"] = False
+                    st.session_state["email"] = None
+                    st.session_state["trading_active"] = False
+                    update_trading_status(st.session_state["email"], "inactive")
+                    st.session_state.pop("bot", None)
+                    st.session_state.pop("thread", None)
+                    st.success("Logged out successfully!")
+                    st.rerun()
 
         st.subheader("Trade Output")
-        if "bot" in st.session_state and st.session_state["bot"].cumulative_profit >= st.session_state["bot"].target_profit:
-            st.session_state["bot"].stop_trading = True
-            st.session_state["thread"].join()
-            st.session_state["trading_active"] = False
-            update_trading_status(st.session_state["email"], "inactive")
-            clear_trading_state(st.session_state["email"])
-            st.success(f"Target profit of ${st.session_state['bot'].target_profit:.2f} reached!")
-            st.session_state.pop("bot", None)
-            st.session_state.pop("thread", None)
+        if "bot" in st.session_state:
+            bot = st.session_state["bot"]
+            # Filter output for specific messages (assumes bot logs these)
+            for log in bot.trade_logs:  # Replace with actual bot log attribute
+                if "Trade sent with amount details" in log or "results with details" in log:
+                    st.write(log)
+            if bot.cumulative_profit >= bot.target_profit:
+                bot.stop_trading = True
+                st.session_state["thread"].join()
+                st.session_state["trading_active"] = False
+                update_trading_status(st.session_state["email"], "inactive")
+                clear_trading_state(st.session_state["email"])
+                st.success(f"Target profit of ${bot.target_profit:.2f} reached!")
+                st.session_state.pop("bot", None)
+                st.session_state.pop("thread", None)
 
 if __name__ == "__main__":
     main()
