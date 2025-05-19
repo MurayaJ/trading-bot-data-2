@@ -62,7 +62,7 @@ def main():
     """, unsafe_allow_html=True)
 
     # Initialize app
-    init_db()  # Assumes db_utils.py is updated for PostgreSQL
+    init_db()  # Database schema is now ensured to be correct
 
     # Session state initialization
     if "logged_in" not in st.session_state:
