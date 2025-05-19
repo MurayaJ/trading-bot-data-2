@@ -8,13 +8,10 @@ import talib
 from datetime import datetime
 import joblib
 import os
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import StandardScaler
+import logging
 from db_utils import update_trading_status
-from utils import commit_and_push
 
 class TradingAlgorithm:
-    """Base class for trading algorithms."""
     def __init__(self, app_id, token, target_profit, session_id, model_paths):
         self.app_id = app_id
         self.token = token
@@ -54,14 +51,16 @@ class TradingAlgorithm:
 
     def on_error(self, ws, error):
         self.output.append(f"WebSocket error: {error}")
+        logging.error(f"WebSocket error: {error}")
 
     def on_close(self, ws, close_status_code, close_msg):
         self.output.append(f"WebSocket closed: {close_status_code} - {close_msg}")
         self.is_trading = False
+        if not self.stop_trading:
+            self.output.append("Reconnecting in 5 seconds...")
 
     def process_message(self, ws, data):
-        # Placeholder for message processing; to be overridden by subclasses
-        pass
+        pass  # To be implemented by subclasses
 
     def run(self):
         while not self.stop_trading:
@@ -75,5 +74,4 @@ class TradingAlgorithm:
             )
             ws.run_forever(ping_interval=20, ping_timeout=10)
             if not self.stop_trading:
-                self.output.append("Connection closed. Reconnecting in 5 seconds...")
                 time.sleep(5)
