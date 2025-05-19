@@ -7,11 +7,13 @@ from utils import commit_and_push
 DB_PATH = "db/trading_users.db"
 
 def init_db():
-    """Initialize the database with necessary tables."""
+    """Initialize the database with necessary tables and ensure all columns are present."""
     if not os.path.exists("db"):
         os.makedirs("db")
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
+    
+    # Create table if it doesn't exist
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,6 +27,27 @@ def init_db():
             trading_state TEXT
         )
     """)
+    
+    # Check existing columns and add missing ones
+    c.execute("PRAGMA table_info(users)")
+    existing_columns = [col[1] for col in c.fetchall()]
+    
+    required_columns = [
+        ("id", "INTEGER PRIMARY KEY AUTOINCREMENT"),
+        ("name", "TEXT NOT NULL"),
+        ("email", "TEXT UNIQUE NOT NULL"),
+        ("password_hash", "TEXT NOT NULL"),
+        ("trial_start_date", "TEXT"),
+        ("subscription_status", "TEXT DEFAULT 'trial'"),
+        ("last_payment_date", "TEXT"),
+        ("trading_status", "TEXT DEFAULT 'inactive'"),
+        ("trading_state", "TEXT")
+    ]
+    
+    for col_name, col_type in required_columns:
+        if col_name not in existing_columns:
+            c.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
+    
     conn.commit()
     conn.close()
 
