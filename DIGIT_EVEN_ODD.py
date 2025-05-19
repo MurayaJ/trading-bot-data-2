@@ -1,7 +1,3 @@
-import threading
-import time
-import websocket
-import json
 import numpy as np
 import pandas as pd
 import talib
@@ -10,12 +6,12 @@ import joblib
 import os
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
-from db_utils import update_trading_status
-from utils import commit_and_push
 from trading_algorithm import TradingAlgorithm
+import json
+import time
+import logging
 
 class DigitEvenOdd(TradingAlgorithm):
-    """Trading algorithm for predicting even/odd digits."""
     def __init__(self, app_id, token, target_profit, session_id, model_paths):
         super().__init__(app_id, token, target_profit, session_id, model_paths)
         self.expected_features = 10
@@ -28,28 +24,30 @@ class DigitEvenOdd(TradingAlgorithm):
         self.load_models()
 
     def load_models(self):
+        for path in self.model_paths.values():
+            os.makedirs(os.path.dirname(path), exist_ok=True)
         try:
             self.markov_p1 = joblib.load(self.model_paths["markov_p1"])
             self.markov_p2 = joblib.load(self.model_paths["markov_p2"])
             self.rf_model = joblib.load(self.model_paths["rf_digit_predictor"])
             self.scaler = joblib.load(self.model_paths["feature_scaler"])
             if self.markov_p1.shape != (10, 10) or self.markov_p2.shape != (100, 10):
-                self.output.append("Markov model shapes incompatible. Reinitializing.")
-                self.markov_p1 = np.full((10, 10), 0.1)
-                self.markov_p2 = np.full((100, 10), 0.1)
-            if hasattr(self.rf_model, 'n_features_in_') and self.rf_model.n_features_in_ != self.expected_features:
-                self.output.append(f"RF model expects {self.rf_model.n_features_in_} features, but {self.expected_features} required. Reinitializing.")
-                self.rf_model = RandomForestClassifier(n_estimators=100, random_state=42)
-            if hasattr(self.scaler, 'n_features_in_') and self.scaler.n_features_in_ != self.expected_features:
-                self.output.append(f"Scaler expects {self.scaler.n_features_in_} features, but {self.expected_features} required. Reinitializing.")
-                self.scaler = StandardScaler()
-            self.output.append("Models loaded successfully.")
+                self.initialize_default_models()
+            elif hasattr(self.rf_model, 'n_features_in_') and self.rf_model.n_features_in_ != self.expected_features:
+                self.initialize_default_models()
+            elif hasattr(self.scaler, 'n_features_in_') and self.scaler.n_features_in_ != self.expected_features:
+                self.initialize_default_models()
+            else:
+                self.output.append("Models loaded successfully.")
         except Exception as e:
             self.output.append(f"Error loading models: {e}. Initializing defaults.")
-            self.markov_p1 = np.full((10, 10), 0.1)
-            self.markov_p2 = np.full((100, 10), 0.1)
-            self.rf_model = RandomForestClassifier(n_estimators=100, random_state=42)
-            self.scaler = StandardScaler()
+            self.initialize_default_models()
+
+    def initialize_default_models(self):
+        self.markov_p1 = np.full((10, 10), 0.1)
+        self.markov_p2 = np.full((100, 10), 0.1)
+        self.rf_model = RandomForestClassifier(n_estimators=100, random_state=42)
+        self.scaler = StandardScaler()
 
     def save_models(self):
         try:
@@ -97,9 +95,6 @@ class DigitEvenOdd(TradingAlgorithm):
                 if k != d_t_plus_1:
                     self.markov_p2[state, k] = (1 - alpha) * self.markov_p2[state, k]
             self.markov_p2[state, :] /= np.sum(self.markov_p2[state, :])
-        if is_win is not None:
-            action = "Rewarded" if is_win else "Punished"
-            self.output.append(f"{action} Markov models: Transition {d_t} -> {d_t_plus_1}, Alpha: {alpha}, Adjustment: {adjustment}")
 
     def get_features(self):
         if len(self.digit_history) < 3 or len(self.df) < 20:
@@ -109,11 +104,7 @@ class DigitEvenOdd(TradingAlgorithm):
         d_t_minus_1 = self.digit_history[-2] if len(self.digit_history) >= 2 else 0
         P_even, P_odd = self.predict_one_step(d_t, d_t_minus_1)
         indicators = self.df.iloc[-1][['MA_6', 'RSI', 'Volatility', 'Hour_sin', 'Hour_cos']].values
-        features = list(recent_digits) + [P_even, P_odd] + list(indicators)
-        if len(features) != self.expected_features:
-            self.output.append(f"Feature mismatch: expected {self.expected_features}, got {len(features)}")
-            return None
-        return features
+        return list(recent_digits) + [P_even, P_odd] + list(indicators)
 
     def predict_one_step(self, d_t, d_t_minus_1=None):
         if d_t_minus_1 is not None:
@@ -126,58 +117,35 @@ class DigitEvenOdd(TradingAlgorithm):
 
     def train_rf_predictor(self):
         if len(self.training_data) < 100:
-            self.output.append("Insufficient data for training. Need at least 100 samples.")
             return
         X = np.array(self.training_data)
         y = np.array(self.training_targets)
         weights = np.array(self.training_weights)
         if X.shape[1] != self.expected_features:
-            self.output.append(f"Training data has {X.shape[1]} features, expected {self.expected_features}. Reinitializing.")
             self.rf_model = RandomForestClassifier(n_estimators=100, random_state=42)
             self.scaler = StandardScaler()
             return
-        try:
-            self.scaler.fit(X)
-            X_scaled = self.scaler.transform(X)
-            self.rf_model.fit(X_scaled, y, sample_weight=weights)
-            self.output.append(f"Random Forest predictor trained. Classes: {self.rf_model.classes_}")
-        except Exception as e:
-            self.output.append(f"Error training RF predictor: {e}")
+        self.scaler.fit(X)
+        X_scaled = self.scaler.transform(X)
+        self.rf_model.fit(X_scaled, y, sample_weight=weights)
 
     def get_rf_prediction(self, features):
-        if features is None or not hasattr(self.scaler, 'n_features_in_') or not hasattr(self.rf_model, 'classes_'):
-            self.output.append("Model not ready. Returning default probabilities.")
+        if features is None or not hasattr(self.scaler, 'n_features_in_'):
             return [0.5, 0.5]
-        try:
-            features_array = np.array([features])
-            if features_array.shape[1] != self.expected_features:
-                self.output.append(f"Prediction mismatch: expected {self.expected_features}, got {features_array.shape[1]}. Returning defaults.")
-                return [0.5, 0.5]
-            features_scaled = self.scaler.transform(features_array)
-            pred_proba = self.rf_model.predict_proba(features_scaled)[0]
-            self.output.append(f"RF Prediction: P(even)={pred_proba[0]:.3f}, P(odd)={pred_proba[1]:.3f}")
-            if len(pred_proba) != 2:
-                self.output.append(f"Unexpected number of probabilities: {len(pred_proba)}. Returning defaults.")
-                return [0.5, 0.5]
-            return pred_proba
-        except Exception as e:
-            self.output.append(f"Prediction error: {e}. Returning default probabilities.")
-            return [0.5, 0.5]
+        features_array = np.array([features])
+        features_scaled = self.scaler.transform(features_array)
+        pred_proba = self.rf_model.predict_proba(features_scaled)[0]
+        return pred_proba
 
     def get_rf_threshold(self):
         base_threshold = 0.55
         loss_increment = 0.02
         max_threshold = 0.75
-        if self.consecutive_losses <= 3:
-            threshold = base_threshold + loss_increment * self.consecutive_losses
-        else:
-            threshold = base_threshold + loss_increment * 3 + 0.05 * (self.consecutive_losses - 3)
+        threshold = base_threshold + loss_increment * min(self.consecutive_losses, 10)
         return min(threshold, max_threshold)
 
     def calculate_profit(self, is_win):
-        if is_win:
-            return round(self.amount * 0.8857, 2)
-        return -self.amount
+        return round(self.amount * 0.8857, 2) if is_win else -self.amount
 
     def adjust_amount(self, is_win):
         if is_win:
@@ -202,7 +170,7 @@ class DigitEvenOdd(TradingAlgorithm):
             }
         })
         ws.send(json_data)
-        self.output.append(f"Trade placed: {contract_type}, Entry Tick: {self.entry_tick}, Amount: {self.amount:.2f}")
+        self.output.append(f"Trade placed: {contract_type}, Amount: {self.amount:.2f}, Entry Tick: {self.entry_tick}")
 
     def process_message(self, ws, data):
         if 'error' in data:
@@ -243,7 +211,6 @@ class DigitEvenOdd(TradingAlgorithm):
                 if self.training_samples % 100 == 0:
                     self.save_models()
                     self.train_rf_predictor()
-                self.output.append(f"Trained: {d_t} -> {d_t_plus_1}, Samples: {self.training_samples}")
 
             if self.training_samples >= 100 and not self.is_trading and (time.time() - self.last_trade_time) >= self.trade_cooldown and self.cumulative_profit < self.target_profit:
                 features = self.get_features()
@@ -273,7 +240,6 @@ class DigitEvenOdd(TradingAlgorithm):
                     self.recent_trades.pop(0)
 
                 if self.prediction_tick is not None and self.entry_tick is not None and self.last_features is not None:
-                    self.update_markov_models(self.prediction_tick, self.entry_tick, self.digit_history[-3] if len(self.digit_history) >= 3 else None)
                     self.update_markov_models(self.entry_tick, last_digit, self.prediction_tick, is_win=is_win)
                     target = 0 if last_digit % 2 == 0 else 1
                     weight = 2.0 if is_win else 0.5
@@ -281,7 +247,6 @@ class DigitEvenOdd(TradingAlgorithm):
                     self.training_targets.append(target)
                     self.training_weights.append(weight)
                     self.train_rf_predictor()
-                    self.output.append(f"{'Rewarded' if is_win else 'Punished'} RF predictor: Sample weight = {weight}")
 
                 self.output.append(f"Trade Result: {contract_type}, Entry Tick: {self.entry_tick}, Exit Tick: {exit_tick}, {'Win' if is_win else 'Loss'}, Profit: {profit:.2f}, Balance: {self.account_balance:.2f}")
                 self.is_trading = False
@@ -292,5 +257,3 @@ class DigitEvenOdd(TradingAlgorithm):
                 if self.cumulative_profit >= self.target_profit or self.account_balance <= 0:
                     self.save_models()
                     self.stop_trading = True
-                    update_trading_status(self.session_id, 'inactive')
-                    self.output.append("Trading stopped: Target reached or balance depleted.")
