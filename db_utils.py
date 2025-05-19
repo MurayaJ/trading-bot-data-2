@@ -2,18 +2,15 @@ import sqlite3
 import bcrypt
 from datetime import datetime, timedelta
 import os
-from utils import commit_and_push
+import json
 
 DB_PATH = "db/trading_users.db"
 
 def init_db():
-    """Initialize the database with necessary tables and ensure all columns are present."""
     if not os.path.exists("db"):
         os.makedirs("db")
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
-    
-    # Create table if it doesn't exist
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,32 +24,10 @@ def init_db():
             trading_state TEXT
         )
     """)
-    
-    # Check existing columns and add missing ones
-    c.execute("PRAGMA table_info(users)")
-    existing_columns = [col[1] for col in c.fetchall()]
-    
-    required_columns = [
-        ("id", "INTEGER PRIMARY KEY AUTOINCREMENT"),
-        ("name", "TEXT NOT NULL"),
-        ("email", "TEXT UNIQUE NOT NULL"),
-        ("password_hash", "TEXT NOT NULL"),
-        ("trial_start_date", "TEXT"),
-        ("subscription_status", "TEXT DEFAULT 'trial'"),
-        ("last_payment_date", "TEXT"),
-        ("trading_status", "TEXT DEFAULT 'inactive'"),
-        ("trading_state", "TEXT")
-    ]
-    
-    for col_name, col_type in required_columns:
-        if col_name not in existing_columns:
-            c.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
-    
     conn.commit()
     conn.close()
 
 def register_user(name, email, password):
-    """Register a new user."""
     email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
@@ -64,7 +39,6 @@ def register_user(name, email, password):
             VALUES (?, ?, ?, ?, 'trial', 'inactive')
         """, (name, email, password_hash, trial_start_date))
         conn.commit()
-        commit_and_push()
         return True
     except sqlite3.IntegrityError:
         return False
@@ -72,23 +46,19 @@ def register_user(name, email, password):
         conn.close()
 
 def login_user(email, password):
-    """Authenticate a user."""
     email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     try:
         c.execute("SELECT password_hash FROM users WHERE email = ?", (email,))
         result = c.fetchone()
-        if result:
-            stored_hash = result[0].encode('utf-8')
-            if bcrypt.checkpw(password.encode("utf-8"), stored_hash):
-                return {"success": True, "message": "Login successful"}
+        if result and bcrypt.checkpw(password.encode("utf-8"), result[0].encode('utf-8')):
+            return {"success": True, "message": "Login successful"}
         return {"success": False, "message": "Invalid credentials"}
     finally:
         conn.close()
 
 def get_user_data(email):
-    """Retrieve user data."""
     email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
@@ -106,38 +76,34 @@ def get_user_data(email):
         conn.close()
 
 def check_subscription_status(email):
-    """Check and update subscription status."""
     email = email.lower()
     user_data = get_user_data(email)
     if not user_data:
         return None
+    now = datetime.now()
     if user_data["subscription_status"] == "trial" and user_data["trial_start_date"]:
         trial_start = datetime.fromisoformat(user_data["trial_start_date"])
-        if (datetime.now() - trial_start) > timedelta(days=7):
+        if (now - trial_start) > timedelta(days=7):
             deactivate_user(email)
             user_data["subscription_status"] = "deactivated"
     elif user_data["subscription_status"] == "active" and user_data["last_payment_date"]:
         last_payment = datetime.fromisoformat(user_data["last_payment_date"])
-        if (datetime.now() - last_payment).days > 30:
+        if (now - last_payment).days > 30:
             deactivate_user(email)
             user_data["subscription_status"] = "deactivated"
     return user_data
 
 def update_trading_status(email, status):
-    """Update trading status."""
     email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     try:
         c.execute("UPDATE users SET trading_status = ? WHERE email = ?", (status, email))
         conn.commit()
-        commit_and_push()
     finally:
         conn.close()
 
 def save_trading_state(email, state):
-    """Save trading state as JSON string."""
-    import json
     email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
@@ -145,13 +111,10 @@ def save_trading_state(email, state):
         state_json = json.dumps(state)
         c.execute("UPDATE users SET trading_state = ? WHERE email = ?", (state_json, email))
         conn.commit()
-        commit_and_push()
     finally:
         conn.close()
 
 def get_trading_state(email):
-    """Retrieve trading state."""
-    import json
     email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
@@ -165,32 +128,26 @@ def get_trading_state(email):
         conn.close()
 
 def clear_trading_state(email):
-    """Clear trading state."""
     email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     try:
         c.execute("UPDATE users SET trading_state = NULL WHERE email = ?", (email,))
         conn.commit()
-        commit_and_push()
     finally:
         conn.close()
 
-# Admin Actions
 def deactivate_user(email):
-    """Deactivate a user account."""
     email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     try:
         c.execute("UPDATE users SET subscription_status = 'deactivated' WHERE email = ?", (email,))
         conn.commit()
-        commit_and_push()
     finally:
         conn.close()
 
 def activate_user(email, is_trial=False):
-    """Activate a user account."""
     email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
@@ -200,43 +157,19 @@ def activate_user(email, is_trial=False):
         c.execute(f"UPDATE users SET subscription_status = ?, {date_field} = ? WHERE email = ?", 
                   (status, datetime.now().isoformat(), email))
         conn.commit()
-        commit_and_push()
-    finally:
-        conn.close()
-
-def block_user(email):
-    """Block a user account."""
-    email = email.lower()
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    c = conn.cursor()
-    try:
-        c.execute("UPDATE users SET subscription_status = 'blocked' WHERE email = ?", (email,))
-        conn.commit()
-        commit_and_push()
     finally:
         conn.close()
 
 def reset_user_password(email, new_password):
-    """Reset a user's password."""
     email = email.lower()
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     try:
-        new_hash = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode('utf-8')
-        c.execute("UPDATE users SET password_hash = ? WHERE email = ?", (new_hash, email))
-        conn.commit()
-        commit_and_push()
-    finally:
-        conn.close()
-
-def delete_user(email):
-    """Delete a user from the database."""
-    email = email.lower()
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    c = conn.cursor()
-    try:
-        c.execute("DELETE FROM users WHERE email = ?", (email,))
-        conn.commit()
-        commit_and_push()
+        if get_user_data(email):
+            new_hash = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode('utf-8')
+            c.execute("UPDATE users SET password_hash = ? WHERE email = ?", (new_hash, email))
+            conn.commit()
+            return True
+        return False
     finally:
         conn.close()
