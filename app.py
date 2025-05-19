@@ -260,9 +260,9 @@ def main():
         st.subheader("Trade Output")
         if "bot" in st.session_state:
             bot = st.session_state["bot"]
-            # Filter output for specific messages (assumes bot logs these)
-            for log in bot.trade_logs:  # Replace with actual bot log attribute
-                if "Trade sent with amount details" in log or "results with details" in log:
+            # Filter output for trade-related messages
+            for log in bot.output:
+                if "Trade placed" in log or "Trade Result" in log:
                     st.write(log)
             if bot.cumulative_profit >= bot.target_profit:
                 bot.stop_trading = True
