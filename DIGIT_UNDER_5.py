@@ -130,7 +130,7 @@ class DigitUnder5(TradingAlgorithm):
         self.rf_model.fit(X_scaled, y, sample_weight=weights)
 
     def get_rf_prediction(self, features):
-        if features is None or not hasattr(self.scaler, 'n_features_in_'):
+        if features is None or not hasattr(self.scaler, 'n_features_in_') or not hasattr(self.rf_model, 'classes_'):
             return [0.5, 0.5]
         features_array = np.array([features])
         features_scaled = self.scaler.transform(features_array)
@@ -152,7 +152,7 @@ class DigitUnder5(TradingAlgorithm):
             self.amount = self.initial_amount
             self.consecutive_losses = 0
         else:
-            self.amount = min(round(self.amount * self.loss_multiplier, 2), self.account_balance * 0.9)
+            self.amount = min(round(self.amount * self.loss_multiplier, 2), self.account_balance * 0.1)
             self.consecutive_losses += 1
         self.price = self.amount
 
@@ -196,6 +196,9 @@ class DigitUnder5(TradingAlgorithm):
                         self.training_data.pop(0)
                         self.training_targets.pop(0)
                         self.training_weights.pop(0)
+                    # Train as soon as we have enough data
+                    if len(self.training_data) >= 100 and not hasattr(self.rf_model, 'classes_'):
+                        self.train_rf_predictor()
 
             self.digit_history.append(last_digit)
             if len(self.digit_history) > 100:
