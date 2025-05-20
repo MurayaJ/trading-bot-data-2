@@ -152,7 +152,7 @@ class DigitUnder5(TradingAlgorithm):
             self.amount = self.initial_amount
             self.consecutive_losses = 0
         else:
-            self.amount = min(round(self.amount * self.loss_multiplier, 2), self.account_balance * 0.1)
+            self.amount = min(round(self.amount * self.loss_multiplier, 2), self.account_balance * 0.9)
             self.consecutive_losses += 1
         self.price = self.amount
 
