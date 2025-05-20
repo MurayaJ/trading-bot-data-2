@@ -157,6 +157,9 @@ class DigitOver4(TradingAlgorithm):
         self.price = self.amount
 
     def buy_contract(self, ws, contract_type):
+        if self.amount > self.account_balance:
+            self.amount = self.account_balance
+            self.price = self.amount
         self.last_features = self.get_features()
         self.prediction_tick = self.digit_history[-2] if len(self.digit_history) >= 2 else None
         self.entry_tick = self.digit_history[-1]
