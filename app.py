@@ -203,6 +203,8 @@ def main():
                             st.rerun()
             with col_btn3:
                 if st.button("Refresh"):
+                    with st.spinner("Refreshing..."):  # Added spinner for Refresh button
+                        time.sleep(0.5)  # Short delay to show spinner
                     st.rerun()
 
         with col2:
@@ -247,7 +249,10 @@ def resume_trading(email):
 
 def stop_trading():
     if "bot" in st.session_state:
-        st.session_state["bot"].stop_trading = True
+        bot = st.session_state["bot"]
+        if hasattr(bot, 'ws') and bot.ws is not None:  # Check and close WebSocket
+            bot.ws.close()
+        bot.stop_trading = True
         st.session_state["thread"].join(timeout=5)
         if st.session_state["thread"].is_alive():
             logging.warning("Thread did not terminate cleanly.")
@@ -270,7 +275,7 @@ def display_trade_output():
             if "Trade placed" in log or "Trade Result" in log:
                 st.write(log)
         if bot.cumulative_profit >= bot.target_profit:
-            stop_trading()
+            stop_trading()  # This will now close the WebSocket, ensuring immediate stop
             st.success(f"Target profit of ${bot.target_profit:.2f} reached!")
             st.rerun()
 
