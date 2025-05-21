@@ -39,6 +39,7 @@ class TradingAlgorithm:
             "Time": "datetime64[ns]", "Tick": "float64", "Last_Digit": "int64", "MA_6": "float64",
             "RSI": "float64", "Volatility": "float64", "Hour_sin": "float64", "Hour_cos": "float64"
         })
+        self.ws = None  # Added to store WebSocket object
 
     def on_open(self, ws):
         auth_message = {"authorize": self.token}
@@ -72,6 +73,7 @@ class TradingAlgorithm:
                 on_error=self.on_error,
                 on_close=self.on_close
             )
+            self.ws = ws  # Store WebSocket object
             ws.run_forever(ping_interval=20, ping_timeout=10)
             if not self.stop_trading:
                 time.sleep(5)
